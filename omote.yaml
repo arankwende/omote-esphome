@@ -89,6 +89,7 @@ external_components:
 
 esp32:
   board: esp32-s3-devkitc-1
+  cpu_frequency: 240Mhz
   framework:
     type: esp-idf
 # Deep sleep configuration
@@ -2409,3 +2410,4 @@ remote_transmitter:
     inverted: True
   carrier_duty_percent: 50%
   use_dma: True
+  non_blocking: true
