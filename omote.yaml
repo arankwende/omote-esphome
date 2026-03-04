@@ -68,12 +68,12 @@ esphome:
       then:
         - output.turn_off: lcd_rd
     # Turn on backlight after boot (including wake from deep sleep)
-#    - priority: -100
-#      then:
-#        - light.turn_on: back_light
-#        - globals.set:
-#            id: device_sleeping
-#            value: 'false'
+    - priority: -100
+      then:
+        - light.turn_on: back_light
+        - globals.set:
+            id: device_sleeping
+            value: 'false'
 
 # External components
 # NOTE: Comment out components that cause boot loops if hardware not detected
@@ -96,7 +96,7 @@ esp32:
       CONFIG_SPIRAM: "y"
       CONFIG_SPIRAM_MODE_OCT: "y"
       CONFIG_SPIRAM_MODE_QUAD: "n"
-      CONFIG_SPIRAM_SPEED_80M: "y"
+      CONFIG_SPIRAM_SPEED_120M: "y"
       CONFIG_SPIRAM_BOOT_INIT: "y"
       CONFIG_SPIRAM_USE_MALLOC: "y"
       CONFIG_SPIRAM_MEMTEST: "y"
@@ -123,10 +123,9 @@ deep_sleep:
 # The Omote uses ESP32-S3 with PSRAM
 psram:
   mode: octal
-  speed: 80MHz
-# Enable logging with debug level for diagnostics
+  speed: 120MHz
 logger:
-  level: DEBUG
+  level: INFO
 
 # Enable Home Assistant API
 api:
@@ -335,28 +334,6 @@ sensor:
   #     id: gyro_z
   #     internal: true
   #   update_interval: 500ms
-# Debug sensors for memory monitoring
-  - platform: template
-    id: free_heap
-    name: "Free Heap Memory"
-    lambda: 'return heap_caps_get_free_size(MALLOC_CAP_INTERNAL);'
-    update_interval: 5s
-    unit_of_measurement: "bytes"
-    entity_category: diagnostic
-  - platform: template
-    id: free_psram
-    name: "Free PSRAM"
-    lambda: 'return heap_caps_get_free_size(MALLOC_CAP_SPIRAM);'
-    update_interval: 5s
-    unit_of_measurement: "bytes"
-    entity_category: diagnostic
-  - platform: template
-    id: largest_free_block
-    name: "Largest Free Block"
-    lambda: 'return heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);'
-    update_interval: 5s
-    unit_of_measurement: "bytes"
-    entity_category: diagnostic
 
 button:
   - platform: restart
@@ -1289,7 +1266,7 @@ i2c:
   # Expected devices: 0x38 (FT63X6 touchscreen), 0x34 (TCA8418 keypad), 0x6B (IMU)
   sda_pullup_enabled: true  # Enable internal pull-ups
   scl_pullup_enabled: true  # Enable internal pull-ups
-  scan: true
+  scan: false
   timeout: 100ms  # Add timeout to prevent hanging
 
 # TCA8418 Keypad Matrix Controller (based on Adafruit library)
@@ -2433,7 +2410,7 @@ switch:
 remote_receiver:
   pin:
     number: GPIO04
-  dump: all
+  dump: none
   use_dma: True
 
 remote_transmitter:
