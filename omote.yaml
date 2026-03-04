@@ -110,7 +110,10 @@ deep_sleep:
   #   pins:
   #     - GPIO07  # IMU INT pin if available
   #   mode: ANY_HIGH
-
+#Define PSRam mode and speed
+psram:
+  mode: quad
+  speed: 80MHz
 # Enable logging
 logger:
 
@@ -167,38 +170,13 @@ wifi:
     - lvgl.widget.update:
         id: lbl_wifi_tv
         text_color: 0xFF0000
+# Manual IP config
   manual_ip:
       static_ip: ${static_ip}
       gateway: ${gateway}
       subnet: ${subnet}
 web_server:
   port: 80
-
-time:
-  - platform: homeassistant
-    id: homeassistant_time
-    on_time:
-      - seconds: 0
-        then:
-          - lvgl.label.update:
-              id: lbl_time_room
-              text: !lambda |-
-                auto time = id(homeassistant_time).now();
-                return time.strftime("%H:%M");
-          - lvgl.label.update:
-              id: lbl_time_music
-              text: !lambda |-
-                auto time = id(homeassistant_time).now();
-                return time.strftime("%H:%M");
-          - lvgl.label.update:
-              id: lbl_time_tv
-              text: !lambda |-
-                auto time = id(homeassistant_time).now();
-                return time.strftime("%H:%M");
-
-psram:
-  mode: quad
-  speed: 80MHz
 
 http_request:
   useragent: esphome/omote
@@ -223,6 +201,28 @@ online_image:
       - lvgl.image.update:
           id: img_tv_art
           src: tv_art
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+    on_time:
+      - seconds: 0
+        then:
+          - lvgl.label.update:
+              id: lbl_time_room
+              text: !lambda |-
+                auto time = id(homeassistant_time).now();
+                return time.strftime("%H:%M");
+          - lvgl.label.update:
+              id: lbl_time_music
+              text: !lambda |-
+                auto time = id(homeassistant_time).now();
+                return time.strftime("%H:%M");
+          - lvgl.label.update:
+              id: lbl_time_tv
+              text: !lambda |-
+                auto time = id(homeassistant_time).now();
+                return time.strftime("%H:%M");
 
 
 #set up battery sensor (MAX17043/MAX17048 fuel gauge at I2C 0x36)
@@ -482,12 +482,12 @@ text_sensor:
             - globals.set:
                 id: is_nighttime
                 value: 'true'
-            - light.turn_off: back_light
+#            - light.turn_off: back_light
           else:
             - globals.set:
                 id: is_nighttime
                 value: 'false'
-            - light.turn_on: back_light
+#            - light.turn_on: back_light
 
 binary_sensor:
   # NOTE: Power button on GPIO03 removed - it conflicts with deep_sleep wakeup_pin
@@ -572,7 +572,7 @@ binary_sensor:
           then:
             - script.execute: script_tv_exit
           else:
-            - logger.log: "R0C2 Media 1 pressed"
+            - logger.log: "Media Button 1 Pressed"
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -581,7 +581,7 @@ binary_sensor:
     col: 0
     name: "Botón Media 2"
     on_press:
-      - logger.log: "R3C0 Media 2 pressed"
+      - logger.log: "Media Button 2 pressed"
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -596,7 +596,7 @@ binary_sensor:
           then:
             - script.execute: script_tv_media_prev
           else:
-            - logger.log: "R1C2 Media 3 pressed"
+            - logger.log: "Media Button 3 pressed"
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -611,7 +611,7 @@ binary_sensor:
           then:
             - script.execute: script_tv_media_next
           else:
-            - logger.log: "R4C0 Media 4 pressed"
+            - logger.log: "Media Button 4 pressed"
 
   # Dpad buttons - TV navigation
   - platform: tca8418_keypad
@@ -805,15 +805,15 @@ binary_sensor:
 
   # Power button (GPIO ROW5 on TCA8418)
   # DEBUG: Using ERROR level logging to ensure visibility
-  - platform: tca8418_keypad
-    tca8418_keypad_id: keypad
-    id: btn_power_keypad
-    key: 102
-    name: "Power Button 11"
-    on_press:
-      - logger.log:
-          format: "POWER BUTTON PRESSED - key 102 detected, entering deep sleep"
-      - script.execute: script_enter_deep_sleep
+#  - platform: tca8418_keypad
+#    tca8418_keypad_id: keypad
+#    id: btn_power_keypad
+#    key: 102
+#    name: "Power Button 11"
+#    on_press:
+#      - logger.log:
+#          format: "POWER BUTTON PRESSED - key 102 detected, entering deep sleep"
+#      - script.execute: script_enter_deep_sleep
 
 
 
@@ -861,14 +861,13 @@ globals:
     initial_value: "0"
 
 script:
-
   # Reset backlight timeout - call this on any user activity
-  - id: script_reset_backlight_timeout
-    then:
-      - light.turn_on: back_light
-      - globals.set:
-          id: last_activity_time
-          value: !lambda 'return millis();'
+#  - id: script_reset_backlight_timeout
+#    then:
+#      - light.turn_on: back_light
+#      - globals.set:
+#          id: last_activity_time
+#          value: !lambda 'return millis();'
 
 
   # Deep sleep script
@@ -897,15 +896,15 @@ script:
 #          id: last_activity_time
 #          value: !lambda 'return millis();'
 #      - lvgl.resume:
-  - id: script_wake_device
-    then:
-      - logger.log: "Waking device..."
-      - globals.set:
-          id: device_sleeping
-          value: 'false'
-      - light.turn_on: back_light
-      - lvgl.resume:
-      - lvgl.widget.redraw:
+#  - id: script_wake_device
+#    then:
+#      - logger.log: "Waking device..."
+#      - globals.set:
+#          id: device_sleeping
+#          value: 'false'
+#      - light.turn_on: back_light
+#      - lvgl.resume:
+#      - lvgl.widget.redraw:
   # Volume up script for Music Assistant
   - id: script_volume_up
     then:
@@ -1325,7 +1324,7 @@ touchscreen:
               - lvgl.resume:
               - lvgl.widget.redraw:
         # Wake screen on touch and reset the 2-minute timeout
-        - script.execute: script_reset_backlight_timeout
+#        - script.execute: script_reset_backlight_timeout
 
 spi:
   - id: quad_spi_bus
@@ -1451,12 +1450,12 @@ lvgl:
     timeout: 120s
     then:
       - logger.log: "LVGL idle - 2 minutes of inactivity"
-      - if:
-          condition:
-            lambda: 'return id(is_nighttime);'
-          then:
-            - logger.log: "Nighttime - turning off backlight"
-            - light.turn_off: back_light
+ #     - if:
+ #         condition:
+ #           lambda: 'return id(is_nighttime);'
+ #         then:
+ #           - logger.log: "Nighttime - turning off backlight"
+ #           - light.turn_off: back_light
   pages:
     # ==================== PAGE 1: ROOM CONTROL ====================
     - id: room_page

@@ -58,6 +58,10 @@ deep_sleep:
   #     - GPIO07  # IMU INT pin if available
   #   mode: ANY_HIGH
 
+psram:
+  mode: quad
+  speed: 80MHz
+
 # Enable logging
 logger:
 
@@ -99,10 +103,6 @@ wifi:
 
 web_server:
   port: 80
-
-psram:
-  mode: quad
-  speed: 80MHz
 
 http_request:
   useragent: esphome/omote
