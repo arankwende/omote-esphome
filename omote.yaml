@@ -91,6 +91,15 @@ esp32:
   board: esp32-s3-devkitc-1
   framework:
     type: esp-idf
+    sdkconfig_options:
+      # PSRAM configuration - critical for LVGL
+      CONFIG_SPIRAM: "y"
+      CONFIG_SPIRAM_MODE_OCT: "y"
+      CONFIG_SPIRAM_MODE_QUAD: "n"
+      CONFIG_SPIRAM_SPEED_80M: "y"
+      CONFIG_SPIRAM_BOOT_INIT: "y"
+      CONFIG_SPIRAM_USE_MALLOC: "y"
+      CONFIG_SPIRAM_MEMTEST: "y"
 
 # Deep sleep configuration
 # Wake source: GPIO03 (power button)
@@ -110,12 +119,14 @@ deep_sleep:
   #   pins:
   #     - GPIO07  # IMU INT pin if available
   #   mode: ANY_HIGH
-#Define PSRam mode and speed
+# PSRAM configuration - CRITICAL for LVGL display
+# The Omote uses ESP32-S3 with PSRAM
 psram:
-  mode: quad
+  mode: octal
   speed: 80MHz
-# Enable logging
+# Enable logging with debug level for diagnostics
 logger:
+  level: DEBUG
 
 # Enable Home Assistant API
 api:
@@ -175,32 +186,32 @@ wifi:
       static_ip: ${static_ip}
       gateway: ${gateway}
       subnet: ${subnet}
-web_server:
-  port: 80
+# web_server:  # Disabled temporarily to reduce memory usage
+#   port: 80
 
 http_request:
   useragent: esphome/omote
   timeout: 10s
 
-online_image:
-  - id: album_art
-    url: "https://via.placeholder.com/100"
-    format: PNG
-    type: RGB565
-    resize: 100x100
-    on_download_finished:
-      - lvgl.image.update:
-          id: img_album_art
-          src: album_art
-  - id: tv_art
-    url: "https://via.placeholder.com/80"
-    format: PNG
-    type: RGB565
-    resize: 80x80
-    on_download_finished:
-      - lvgl.image.update:
-          id: img_tv_art
-          src: tv_art
+# online_image:  # Disabled temporarily - PNG decoding uses significant memory
+#   - id: album_art
+#     url: "https://via.placeholder.com/100"
+#     format: PNG
+#     type: RGB565
+#     resize: 100x100
+#     on_download_finished:
+#       - lvgl.image.update:
+#           id: img_album_art
+#           src: album_art
+#   - id: tv_art
+#     url: "https://via.placeholder.com/80"
+#     format: PNG
+#     type: RGB565
+#     resize: 80x80
+#     on_download_finished:
+#       - lvgl.image.update:
+#           id: img_tv_art
+#           src: tv_art
 
 time:
   - platform: homeassistant
@@ -324,6 +335,29 @@ sensor:
   #     id: gyro_z
   #     internal: true
   #   update_interval: 500ms
+# Debug sensors for memory monitoring
+  - platform: template
+    id: free_heap
+    name: "Free Heap Memory"
+    lambda: 'return heap_caps_get_free_size(MALLOC_CAP_INTERNAL);'
+    update_interval: 5s
+    unit_of_measurement: "bytes"
+    entity_category: diagnostic
+  - platform: template
+    id: free_psram
+    name: "Free PSRAM"
+    lambda: 'return heap_caps_get_free_size(MALLOC_CAP_SPIRAM);'
+    update_interval: 5s
+    unit_of_measurement: "bytes"
+    entity_category: diagnostic
+  - platform: template
+    id: largest_free_block
+    name: "Largest Free Block"
+    lambda: 'return heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);'
+    update_interval: 5s
+    unit_of_measurement: "bytes"
+    entity_category: diagnostic
+
 button:
   - platform: restart
     name: "Restart"
@@ -433,27 +467,28 @@ text_sensor:
     id: music_album_art
     entity_id: media_player.${ma_player}
     attribute: entity_picture
-    on_value:
-      - if:
-          condition:
-            lambda: 'return !x.empty();'
-          then:
-            - online_image.set_url:
-                id: album_art
-                url: !lambda 'return x;'
-  # TV media player art
+    # on_value disabled - online_image component disabled for debugging
+    # on_value:
+    #   - if:
+    #       condition:
+    #         lambda: 'return !x.empty();'
+    #       then:
+    #         - online_image.set_url:
+    #             id: album_art
+    #             url: !lambda 'return x;'
+  # TV media player art - on_value disabled, online_image component disabled for debugging
   - platform: homeassistant
     id: tv_album_art
     entity_id: ${tv_media_player}
     attribute: entity_picture
-    on_value:
-      - if:
-          condition:
-            lambda: 'return !x.empty();'
-          then:
-            - online_image.set_url:
-                id: tv_art
-                url: !lambda 'return x;'
+    # on_value:
+    #   - if:
+    #       condition:
+    #         lambda: 'return !x.empty();'
+    #       then:
+    #         - online_image.set_url:
+    #             id: tv_art
+    #             url: !lambda 'return x;'
   # TV media player state for play/pause icon
   - platform: homeassistant
     id: tv_media_state
@@ -1250,11 +1285,12 @@ script:
 i2c:
   sda: GPIO20
   scl: GPIO19
-  frequency: 400kHz
+  frequency: 100kHz  # Reduced from 400kHz for more reliable communication
   # Expected devices: 0x38 (FT63X6 touchscreen), 0x34 (TCA8418 keypad), 0x6B (IMU)
-  sda_pullup_enabled: False
-  scl_pullup_enabled: False
+  sda_pullup_enabled: true  # Enable internal pull-ups
+  scl_pullup_enabled: true  # Enable internal pull-ups
   scan: true
+  timeout: 100ms  # Add timeout to prevent hanging
 
 # TCA8418 Keypad Matrix Controller (based on Adafruit library)
 # Matrix mode: keys 1-24 for 6x4 matrix (row * 10 + col + 1)
@@ -1445,7 +1481,7 @@ lvgl:
     - LCD
   touchscreens:
     - my_touch
-  buffer_size: 25%
+  buffer_size: 10%  # Reduced from 25% to help with memory pressure
   on_idle:
     timeout: 120s
     then:
@@ -1975,11 +2011,12 @@ lvgl:
             text_color: 0x00AA00
 
         # ===== ALBUM ART + TRACK INFO =====
-        - image:
-            id: img_album_art
-            x: 10
-            y: 35
-            src: album_art
+        # Image disabled - online_image component disabled for debugging
+        # - image:
+        #     id: img_album_art
+        #     x: 10
+        #     y: 35
+        #     src: album_art
         # Track title
         - label:
             id: lbl_music_title
@@ -2211,12 +2248,12 @@ lvgl:
               - script.execute: script_tv_power_toggle
 
         # ===== NOW PLAYING SECTION =====
-        # TV Art image
-        - image:
-            id: img_tv_art
-            x: 10
-            y: 70
-            src: tv_art
+        # TV Art image - disabled, online_image component disabled for debugging
+        # - image:
+        #     id: img_tv_art
+        #     x: 10
+        #     y: 70
+        #     src: tv_art
         # Track info next to art
         - label:
             x: 100
