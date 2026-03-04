@@ -2410,7 +2410,7 @@ switch:
 remote_receiver:
   pin:
     number: GPIO04
-  dump: none
+  dump: all
   use_dma: True
 
 remote_transmitter:
