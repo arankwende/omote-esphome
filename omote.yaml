@@ -531,7 +531,7 @@ binary_sensor:
     name: "Botón 2"
     on_press:
       - logger.log: "Button 2 - navigate left"
-      - script.execute: script_reset_backlight_timeout
+#      - script.execute: script_reset_backlight_timeout
       - script.execute: script_prev_page
 
   - platform: tca8418_keypad
@@ -542,7 +542,7 @@ binary_sensor:
     name: "Botón 3"
     on_press:
       - logger.log: "Button 3 - navigate right"
-      - script.execute: script_reset_backlight_timeout
+ #     - script.execute: script_reset_backlight_timeout
       - script.execute: script_next_page
 
   - platform: tca8418_keypad
