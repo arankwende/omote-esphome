@@ -550,8 +550,8 @@ i2c:
 tca8418_keypad:
   id: keypad
   address: 0x34
-  rows: 0
-  cols: 0
+  rows: 5
+  cols: 5
   interrupt_pin: 8
 
 # IMU sensor for motion wake detection (QMI8658 on Omote)
