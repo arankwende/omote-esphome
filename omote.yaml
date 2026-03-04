@@ -99,7 +99,7 @@ deep_sleep:
   id: deep_sleep_ctrl
   wakeup_pin:
     number: GPIO03
-    allow_other_uses: true
+#    allow_other_uses: true
     inverted: true  # Wake on button press (LOW)
     ignore_strapping_warning: true
   wakeup_pin_mode: KEEP_AWAKE

@@ -47,7 +47,7 @@ deep_sleep:
   id: deep_sleep_ctrl
   wakeup_pin:
     number: GPIO03
-    allow_other_uses: true
+#    allow_other_uses: true
     inverted: true  # Wake on button press (LOW)
   wakeup_pin_mode: KEEP_AWAKE
   # Note: For gyroscope wake, the IMU INT pin would need to be connected
@@ -70,22 +70,10 @@ api:
     - lvgl.widget.update:
         id: lbl_wifi_room
         text_color: 0x00FF00
-    - lvgl.widget.update:
-        id: lbl_wifi_music
-        text_color: 0x00FF00
-    - lvgl.widget.update:
-        id: lbl_wifi_tv
-        text_color: 0x00FF00
   on_client_disconnected:
     - logger.log: "Home Assistant disconnected"
     - lvgl.widget.update:
         id: lbl_wifi_room
-        text_color: 0xFF0000
-    - lvgl.widget.update:
-        id: lbl_wifi_music
-        text_color: 0xFF0000
-    - lvgl.widget.update:
-        id: lbl_wifi_tv
         text_color: 0xFF0000
 ota:
   - platform: esphome
@@ -99,21 +87,9 @@ wifi:
     - lvgl.widget.update:
         id: lbl_wifi_room
         text_color: 0xFFFFFF
-    - lvgl.widget.update:
-        id: lbl_wifi_music
-        text_color: 0xFFFFFF
-    - lvgl.widget.update:
-        id: lbl_wifi_tv
-        text_color: 0xFFFFFF
   on_disconnect:
     - lvgl.widget.update:
         id: lbl_wifi_room
-        text_color: 0xFF0000
-    - lvgl.widget.update:
-        id: lbl_wifi_music
-        text_color: 0xFF0000
-    - lvgl.widget.update:
-        id: lbl_wifi_tv
         text_color: 0xFF0000
 # Manual IP config
 #  manual_ip:
@@ -346,7 +322,7 @@ binary_sensor:
     col: 4
     name: "DPAD Down"
     on_press:
-      - script.execute: script_tv_down
+      - logger.log: "DPAD Down"
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -669,8 +645,12 @@ font:
       - "\U000F04AE"  # mdi:skip-previous
       - "\U000F0238"  # mdi:thermometer
   - file: "gfonts://Roboto"
+    id: roboto_12
+    size: 12
+    bpp: 4
+  - file: "gfonts://Roboto"
     id: roboto_14
-    size: 10
+    size: 14
     bpp: 4
   - file: "gfonts://Roboto"
     id: roboto_18
@@ -694,12 +674,43 @@ lvgl:
   pages:
     # ==================== PAGE 1: ROOM CONTROL ====================
     - id: room_page
-      on_swipe_left:
-        - script.execute: script_next_page
-      on_swipe_right:
-        - script.execute: script_prev_page
+# Swiping logic for multiple pages:
+#      on_swipe_left:
+#        - script.execute: script_next_page
+#      on_swipe_right:
+#        - script.execute: script_prev_page
       widgets:
-        # WiFi indicator (top right)
+        # ===== TOP STATUS BAR =====
+        # Weather icon (left)
+        - label:
+            id: lbl_weather_room
+            x: 5
+            y: 5
+            width: 25
+            height: 25
+            text_font: mdi_20
+            text: "\U000F0599"
+            text_color: 0xFFCC00
+        # Outdoor temperature
+        - label:
+            id: lbl_outdoor_temp_room
+            x: 28
+            y: 7
+            width: 40
+            text_font: roboto_12
+            text: "--°"
+            text_color: 0x333333
+        # Time (center)
+        - label:
+            id: lbl_time_room
+            x: 95
+            y: 5
+            width: 50
+            text_font: roboto_14
+            text: "--:--"
+            text_color: 0x333333
+            text_align: center
+        # WiFi indicator (right)
         - label:
             id: lbl_wifi_room
             x: 210
@@ -707,223 +718,178 @@ lvgl:
             width: 25
             height: 25
             text_font: mdi_20
-            text: "\U000F092F"
-            text_color: 0xFF0000
-        # Temperature display section
-        - obj:
+            text: "\U000F0928"
+            text_color: 0x00AA00
+
+        # ===== INDOOR TEMPERATURE (large, centered) =====
+        - label:
             x: 10
-            y: 10
-            width: 220
-            height: 60
-            bg_color: 0x1a1a2e
-            radius: 10
-            scrollbar_mode: "off"
+            y: 35
+            text_font: mdi_36
+            text: "\U000F0238"
+            text_color: 0x4FC3F7
+        - label:
+            id: lbl_temperature
+            x: 55
+            y: 35
+            width: 180
+            text_font: roboto_24
+            text: "--.-°C"
+            text_color: 0xFFFFFF
+
+        # ===== AC CONTROLS =====
+        # Target temp display
+        - label:
+            id: lbl_target_temp
+            x: 10
+            y: 70
+            width: 60
+            text_font: roboto_18
+            text: "--°C"
+            text_color: 0x4FC3F7
+        - label:
+            id: lbl_climate_mode
+            x: 75
+            y: 73
+            width: 50
+            text_font: roboto_12
+            text: "off"
+            text_color: 0x888888
+        # AC Mode buttons row
+        - button:
+            id: btn_climate_off
+            x: 10
+            y: 95
+            width: 45
+            height: 40
+            bg_color: 0x333333
+            radius: 8
+            scrollable: false
             widgets:
               - label:
-                  x: 10
-                  y: 15
-                  text_font: mdi_36
-                  text: "\U000F0238"
-                  text_color: 0x4FC3F7
-              - label:
-                  id: lbl_temperature
-                  x: 60
-                  y: 10
-                  width: 150
-                  text_font: roboto_24
-                  text: "--.-°C"
-                  text_color: 0xFFFFFF
-        # Climate card section
-        - obj:
-            x: 10
-            y: 75
-            width: 220
-            height: 145
-            bg_color: 0x1a1a2e
-            radius: 10
-            scrollbar_mode: "off"
-            widgets:
-              - label:
-                  x: 10
-                  y: 5
+                  align: center
                   text_font: mdi_20
-                  text: "\U000F0054"
-                  text_color: 0x4FC3F7
-              - label:
-                  x: 40
-                  y: 8
-                  text_font: roboto_14
-                  text: "AC"
-                  text_color: 0xAAAAAA
-              - label:
-                  id: lbl_target_temp
-                  x: 140
-                  y: 5
-                  width: 70
-                  text_font: roboto_24
-                  text: "--°C"
+                  text: "\U000F0425"
                   text_color: 0xFFFFFF
-                  text_align: right
-              - label:
-                  id: lbl_climate_mode
-                  x: 10
-                  y: 30
-                  width: 100
-                  text_font: roboto_14
-                  text: "off"
-                  text_color: 0x888888
-              # Mode buttons row
-              # Off button
-              - button:
-                  id: btn_climate_off
-                  x: 10
-                  y: 50
-                  width: 60
-                  height: 35
-                  bg_color: 0x333333
-                  radius: 8
-                  scrollable: false
-                  widgets:
-                    - label:
-                        align: center
-                        text_font: mdi_20
-                        text: "\U000F0425"
-                        text_color: 0xFFFFFF
-                  on_click:
-                    - homeassistant.service:
-                        service: climate.turn_off
-                        data:
-                          entity_id: ${climate_entity}
-              # Cool button
-              - button:
-                  id: btn_climate_cool
-                  x: 80
-                  y: 50
-                  width: 60
-                  height: 35
-                  bg_color: 0x333333
-                  radius: 8
-                  scrollable: false
-                  widgets:
-                    - label:
-                        align: center
-                        text_font: mdi_20
-                        text: "\U000F0F55"
-                        text_color: 0x4FC3F7
-                  on_click:
-                    - homeassistant.service:
-                        service: climate.set_hvac_mode
-                        data:
-                          entity_id: ${climate_entity}
-                          hvac_mode: cool
-              # Heat button
-              - button:
-                  id: btn_climate_heat
-                  x: 150
-                  y: 50
-                  width: 60
-                  height: 35
-                  bg_color: 0x333333
-                  radius: 8
-                  scrollable: false
-                  widgets:
-                    - label:
-                        align: center
-                        text_font: mdi_20
-                        text: "\U000F0E4B"
-                        text_color: 0xFF5722
-                  on_click:
-                    - homeassistant.service:
-                        service: climate.set_hvac_mode
-                        data:
-                          entity_id: ${climate_entity}
-                          hvac_mode: heat
-              # Temperature decrease button
-              - button:
-                  id: btn_temp_down
-                  x: 10
-                  y: 95
-                  width: 60
-                  height: 35
-                  bg_color: 0x333333
-                  radius: 8
-                  scrollable: false
-                  widgets:
-                    - label:
-                        align: center
-                        text_font: mdi_20
-                        text: "\U000F0374"
-                        text_color: 0xFFFFFF
-                  on_click:
-                    - homeassistant.service:
-                        service: climate.set_temperature
-                        data:
-                          entity_id: ${climate_entity}
-                          temperature: !lambda 'return id(climate_target_temp).state - 1;'
-              # Temperature increase button
-              - button:
-                  id: btn_temp_up
-                  x: 150
-                  y: 95
-                  width: 60
-                  height: 35
-                  bg_color: 0x333333
-                  radius: 8
-                  scrollable: false
-                  widgets:
-                    - label:
-                        align: center
-                        text_font: mdi_20
-                        text: "\U000F0415"
-                        text_color: 0xFFFFFF
-                  on_click:
-                    - homeassistant.service:
-                        service: climate.set_temperature
-                        data:
-                          entity_id: ${climate_entity}
-                          temperature: !lambda 'return id(climate_target_temp).state + 1;'
-        # Light control section
-        - obj:
-            x: 10
-            y: 225
-            width: 220
-            height: 45
-            bg_color: 0x1a1a2e
-            radius: 10
-            scrollbar_mode: "off"
+            on_click:
+              - homeassistant.service:
+                  service: climate.turn_off
+                  data:
+                    entity_id: ${climate_entity}
+        - button:
+            id: btn_climate_cool
+            x: 60
+            y: 95
+            width: 45
+            height: 40
+            bg_color: 0x333333
+            radius: 8
+            scrollable: false
             widgets:
               - label:
-                  x: 10
-                  y: 10
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0F55"
+                  text_color: 0x4FC3F7
+            on_click:
+              - homeassistant.service:
+                  service: climate.set_hvac_mode
+                  data:
+                    entity_id: ${climate_entity}
+                    hvac_mode: cool
+        - button:
+            id: btn_climate_heat
+            x: 110
+            y: 95
+            width: 45
+            height: 40
+            bg_color: 0x333333
+            radius: 8
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0E4B"
+                  text_color: 0xFF5722
+            on_click:
+              - homeassistant.service:
+                  service: climate.set_hvac_mode
+                  data:
+                    entity_id: ${climate_entity}
+                    hvac_mode: heat
+        # Temp +/- buttons
+        - button:
+            id: btn_temp_down
+            x: 165
+            y: 95
+            width: 35
+            height: 40
+            bg_color: 0x333333
+            radius: 8
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0374"
+                  text_color: 0xFFFFFF
+            on_click:
+              - homeassistant.service:
+                  service: climate.set_temperature
+                  data:
+                    entity_id: ${climate_entity}
+                    temperature: !lambda 'return id(climate_target_temp).state - 1;'
+        - button:
+            id: btn_temp_up
+            x: 205
+            y: 95
+            width: 35
+            height: 40
+            bg_color: 0x333333
+            radius: 8
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0415"
+                  text_color: 0xFFFFFF
+            on_click:
+              - homeassistant.service:
+                  service: climate.set_temperature
+                  data:
+                    entity_id: ${climate_entity}
+                    temperature: !lambda 'return id(climate_target_temp).state + 1;'
+
+        # ===== LIGHT TOGGLE (large button) =====
+        - button:
+            id: btn_light
+            x: 10
+            y: 145
+            width: 220
+            height: 50
+            bg_color: 0x333333
+            radius: 10
+            scrollable: false
+            widgets:
+              - label:
+                  x: 15
+                  y: 12
                   text_font: mdi_20
                   text: "\U000F0335"
                   text_color: 0xFFCC00
               - label:
-                  x: 40
-                  y: 12
+                  x: 45
+                  y: 15
                   text_font: roboto_14
                   text: "Room Light"
                   text_color: 0xFFFFFF
-              - button:
-                  id: btn_light
-                  x: 150
-                  y: 5
-                  width: 60
-                  height: 35
-                  bg_color: 0x333333
-                  radius: 17
-                  scrollable: false
-                  widgets:
-                    - label:
-                        align: center
-                        text_font: mdi_20
-                        text: "\U000F0425"
-                        text_color: 0xFFFFFF
-                  on_click:
-                    - homeassistant.service:
-                        service: light.toggle
-                        data:
-                          entity_id: ${light_entity}
+            on_click:
+              - homeassistant.service:
+                  service: light.toggle
+                  data:
+                    entity_id: ${light_entity}
 
 
    
