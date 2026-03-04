@@ -7,7 +7,7 @@ substitutions:
   ma_host: "192.168.1.100"
   ma_port: "8095"
   ma_token: "your_token_here"
-  ma_player: "media_player.room_speaker"
+  ma_player: "room_speaker"
   # Home Assistant Entity IDs (update these to match your setup)
   climate_entity: climate.room_ac
   light_entity: light.room_light
@@ -37,23 +37,27 @@ substitutions:
   # Weather entity for status bar
   weather_entity: weather.home
   # TV IR codes (first put the proper protocol action in remote_type, then fill the rest)
-  # Format: address, command (hex values)
-  remote_type: transmit_rc6
-  tv_ir_address: "0x00"
-  tv_ir_cmd_up: "0x58"
-  tv_ir_cmd_down: "0x59"
-  tv_ir_cmd_left: "0x5A"
-  tv_ir_cmd_right: "0x5B"
-  tv_ir_cmd_select: "0x5C"
-  tv_ir_cmd_channel_up: "0x20"
-  tv_ir_cmd_channel_down: "0x21"
-  tv_ir_cmd_volume_up: "0x10"
-  tv_ir_cmd_volume_down: "0x11"
-  tv_ir_cmd_mute: "0x0D"
-  tv_ir_cmd_power_toggle: "0x0C"
+  # Format: depending on the protocol, it could be just "data:" as with pronto or address, command (hex values), you need to check which case and comment data and uncomment the others if its address command
+  remote_type: transmit_pronto
+#  tv_ir_address: "0x00"
+  tv_ir_cmd_up: "0000 006D 0013 0000 006A 001F 0014 0020 0014 000F 0014 000F 0036 0032 0012 0010 0013 000F 0013 000F 0013 0010 0013 000F 0013 000F 0012 0010 0013 0010 0024 0020 0023 0010 0012 0022 0012 0011 0011 0011 0011 0180 "
+  tv_ir_cmd_down: "0000 006D 0013 0000 006A 001F 0014 001F 0014 000F 0013 000F 0014 0020 0025 000F 0013 000F 0013 0010 0013 000F 0012 0010 0012 0010 0013 0010 0013 000F 0013 000F 0023 0021 0024 0010 0012 0021 0012 0010 0023 0180 "
+  tv_ir_cmd_left: "0000 006D 0013 0000 0068 0022 0011 0022 0011 0011 0012 0011 0011 0022 0022 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0022 0022 0023 0011 0011 0022 0022 0022 0011 0180 "
+  tv_ir_cmd_right: "0000 006D 0013 0000 0069 0021 0011 0021 0013 0010 0012 0010 0034 0033 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0011 0011 0022 0022 0022 0012 0011 0011 0011 0022 0011 0011 0011 0180 "
+  tv_ir_cmd_select: "0000 006D 0013 0000 0069 0021 0011 0021 0013 0010 0012 0010 0034 0033 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0011 0011 0022 0022 0022 0012 0011 0011 0011 0022 0011 0011 0011 0180 "
+  tv_ir_cmd_channel_up: "0000 006D 0015 0000 0068 0021 0012 0022 0011 0011 0011 0011 0012 0022 0022 0011 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0022 0022 0012 0011 0011 0011 0011 0011 0011 0012 0011 0180 "
+  tv_ir_cmd_channel_down: "0000 006D 0014 0000 0069 0022 0011 0022 0011 0011 0011 0012 0033 0033 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0022 0011 0011 0022 0011 0011 0012 0180 "
+  tv_ir_cmd_volume_up: "0000 006D 0015 0000 0069 0021 0013 0020 0014 000F 0014 000F 0014 0020 0025 000F 0013 000F 0013 0010 0013 000F 0012 0010 0011 0011 0013 0010 0013 000F 0013 000F 0012 0011 0012 0010 0023 0021 0012 0010 0012 0011 0012 0011 0011 0180"
+  tv_ir_cmd_volume_down: "0000 006D 0013 0000 0069 0020 0014 0020 0014 000F 0014 000F 0036 0031 0013 0010 0012 0010 0013 000F 0013 0010 0013 000F 0013 000F 0012 0010 0013 0010 0012 0010 0012 0010 0023 0022 0012 0011 0011 0011 0022 0180 "
+  tv_ir_cmd_mute: "0000 006D 0014 0000 0067 0022 0013 0020 0014 000F 0013 000F 0013 0020 0024 0010 0012 0010 0012 0010 0013 000F 0013 0010 0012 0010 0012 0010 0012 0011 0012 0011 0011 0011 0011 0011 0011 0011 0023 0011 0011 0022 0022 0180 "
+  tv_ir_cmd_power_toggle: "0000 006D 0014 0000 0069 0022 0011 0022 0011 0011 0011 0012 0033 0033 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0022 0011 0011 0022 0011 0011 0012 0180 "
   tv_ir_cmd_exit: "0x0A"
   tv_ir_cmd_rewind: "0x0E"
   tv_ir_cmd_fastforward: "0x0F"
+  #IP Configuration for static IP - to enable it, first un comment the section in Wifi
+  static_ip: 192.168.1.101
+  gateway: 192.168.1.1
+  subnet: 255.255.255.0
 
 esphome:
   name: ${name}
@@ -64,17 +68,19 @@ esphome:
       then:
         - output.turn_off: lcd_rd
     # Turn on backlight after boot (including wake from deep sleep)
-    - priority: -100
-      then:
-        - light.turn_on: back_light
-        - globals.set:
-            id: device_sleeping
-            value: 'false'
+#    - priority: -100
+#      then:
+#        - light.turn_on: back_light
+#        - globals.set:
+#            id: device_sleeping
+#            value: 'false'
 
 # External components
 # NOTE: Comment out components that cause boot loops if hardware not detected
 external_components:
-
+  # TCA8418 keypad matrix -github component
+  # - source: github://arankwende/esphome-tca8418_keypad
+  #   components: [tca8418_keypad]
   # TCA8418 keypad matrix - using local component based on Adafruit library
   - source:
       type: local
@@ -93,9 +99,10 @@ deep_sleep:
   id: deep_sleep_ctrl
   wakeup_pin:
     number: GPIO03
+    allow_other_uses: true
     inverted: true  # Wake on button press (LOW)
     ignore_strapping_warning: true
-  # wakeup_pin_mode: KEEP_AWAKE
+  wakeup_pin_mode: KEEP_AWAKE
   # Note: For gyroscope wake, the IMU INT pin would need to be connected
   # to an EXT1 capable GPIO (0-21 on ESP32-S3). If your Omote has this,
   # add it to esp32_ext1_wakeup below
@@ -106,7 +113,6 @@ deep_sleep:
 
 # Enable logging
 logger:
-  level: DEBUG
 
 # Enable Home Assistant API
 api:
@@ -137,6 +143,86 @@ api:
 ota:
   - platform: esphome
     password: ${ota_key}
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  on_connect:
+    - lvgl.widget.update:
+        id: lbl_wifi_room
+        text_color: 0xFFFFFF
+    - lvgl.widget.update:
+        id: lbl_wifi_music
+        text_color: 0xFFFFFF
+    - lvgl.widget.update:
+        id: lbl_wifi_tv
+        text_color: 0xFFFFFF
+  on_disconnect:
+    - lvgl.widget.update:
+        id: lbl_wifi_room
+        text_color: 0xFF0000
+    - lvgl.widget.update:
+        id: lbl_wifi_music
+        text_color: 0xFF0000
+    - lvgl.widget.update:
+        id: lbl_wifi_tv
+        text_color: 0xFF0000
+  manual_ip:
+      static_ip: ${static_ip}
+      gateway: ${gateway}
+      subnet: ${subnet}
+web_server:
+  port: 80
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+    on_time:
+      - seconds: 0
+        then:
+          - lvgl.label.update:
+              id: lbl_time_room
+              text: !lambda |-
+                auto time = id(homeassistant_time).now();
+                return time.strftime("%H:%M");
+          - lvgl.label.update:
+              id: lbl_time_music
+              text: !lambda |-
+                auto time = id(homeassistant_time).now();
+                return time.strftime("%H:%M");
+          - lvgl.label.update:
+              id: lbl_time_tv
+              text: !lambda |-
+                auto time = id(homeassistant_time).now();
+                return time.strftime("%H:%M");
+
+psram:
+  mode: quad
+  speed: 80MHz
+
+http_request:
+  useragent: esphome/omote
+  timeout: 10s
+
+online_image:
+  - id: album_art
+    url: "https://via.placeholder.com/100"
+    format: PNG
+    type: RGB565
+    resize: 100x100
+    on_download_finished:
+      - lvgl.image.update:
+          id: img_album_art
+          src: album_art
+  - id: tv_art
+    url: "https://via.placeholder.com/80"
+    format: PNG
+    type: RGB565
+    resize: 80x80
+    on_download_finished:
+      - lvgl.image.update:
+          id: img_tv_art
+          src: tv_art
 
 
 #set up battery sensor (MAX17043/MAX17048 fuel gauge at I2C 0x36)
@@ -800,6 +886,17 @@ script:
       - deep_sleep.enter: deep_sleep_ctrl
 
   # Wake device script (called by power button or motion)
+#  - id: script_wake_device
+#    then:
+#      - logger.log: "Waking device..."
+#      - globals.set:
+#          id: device_sleeping
+#          value: 'false'
+#      - light.turn_on: back_light
+#      - globals.set:
+#          id: last_activity_time
+#          value: !lambda 'return millis();'
+#      - lvgl.resume:
   - id: script_wake_device
     then:
       - logger.log: "Waking device..."
@@ -807,11 +904,8 @@ script:
           id: device_sleeping
           value: 'false'
       - light.turn_on: back_light
-      - globals.set:
-          id: last_activity_time
-          value: !lambda 'return millis();'
       - lvgl.resume:
-
+      - lvgl.widget.redraw:
   # Volume up script for Music Assistant
   - id: script_volume_up
     then:
@@ -912,30 +1006,39 @@ script:
       - logger.log: "TV: Up"
       - remote_transmitter.${remote_type}:
           data: ${tv_ir_cmd_up}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_up}
 
   - id: script_tv_down
     then:
       - logger.log: "TV: Down"
       - remote_transmitter.${remote_type}:
           data : ${tv_ir_cmd_down}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_down}
 
   - id: script_tv_left
     then:
       - logger.log: "TV: Left"
       - remote_transmitter.${remote_type}:
           data : ${tv_ir_cmd_left}
-
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_left}
   - id: script_tv_right
     then:
       - logger.log: "TV: Right"
       - remote_transmitter.${remote_type}:
           data : ${tv_ir_cmd_right}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_right}
 
   - id: script_tv_select
     then:
       - logger.log: "TV: Select"
       - remote_transmitter.${remote_type}:
           data : ${tv_ir_cmd_select}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_select}
 
   # TV control scripts - Channel
   - id: script_tv_channel_up
@@ -943,12 +1046,16 @@ script:
       - logger.log: "TV: Channel Up"
       - remote_transmitter.${remote_type}:
           data : ${tv_ir_cmd_channel_up}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_channel_up}
 
   - id: script_tv_channel_down
     then:
       - logger.log: "TV: Channel Down"
       - remote_transmitter.${remote_type}:
           data : ${tv_ir_cmd_channel_down}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_channel_down}
 
   # TV control scripts - Volume
   - id: script_tv_volume_up
@@ -956,41 +1063,55 @@ script:
       - logger.log: "TV: Volume Up"
       - remote_transmitter.${remote_type}:
           data: ${tv_ir_cmd_volume_up}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_volume_up}
   - id: script_tv_volume_down
     then:
       - logger.log: "TV: Volume Down"
       - remote_transmitter.${remote_type}:
           data : ${tv_ir_cmd_volume_down}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_volume_down}
 
   - id: script_tv_mute
     then:
       - logger.log: "TV: Mute"
       - remote_transmitter.${remote_type}:
           data : ${tv_ir_cmd_mute}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_mute}
 
   - id: script_tv_rewind
     then:
       - logger.log: "TV: Rewind"
       - remote_transmitter.${remote_type}:
           data: ${tv_ir_cmd_rewind}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_rewind}
 
   - id: script_tv_fastforward
     then:
       - logger.log: "TV: Fast Forward"
       - remote_transmitter.${remote_type}:
           data: ${tv_ir_cmd_fastforward}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_fastforward}
 
   - id: script_tv_exit
     then:
       - logger.log: "TV: Exit"
       - remote_transmitter.${remote_type}:
           data: ${tv_ir_cmd_exit}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_exit}
 
   - id: script_tv_power_toggle
     then:
       - logger.log: "TV: Power Toggle"
       - remote_transmitter.${remote_type}:
           data: ${tv_ir_cmd_power_toggle}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_power_toggle}
 
   # TV media player control scripts
   - id: script_tv_media_play_pause
@@ -1126,83 +1247,6 @@ script:
                     uri.c_str());
                   return std::string(buf);
 
-
-wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
-  on_connect:
-    - lvgl.widget.update:
-        id: lbl_wifi_room
-        text_color: 0xFFFFFF
-    - lvgl.widget.update:
-        id: lbl_wifi_music
-        text_color: 0xFFFFFF
-    - lvgl.widget.update:
-        id: lbl_wifi_tv
-        text_color: 0xFFFFFF
-  on_disconnect:
-    - lvgl.widget.update:
-        id: lbl_wifi_room
-        text_color: 0xFF0000
-    - lvgl.widget.update:
-        id: lbl_wifi_music
-        text_color: 0xFF0000
-    - lvgl.widget.update:
-        id: lbl_wifi_tv
-        text_color: 0xFF0000
-
-web_server:
-  port: 80
-
-time:
-  - platform: homeassistant
-    id: homeassistant_time
-    on_time:
-      - seconds: 0
-        then:
-          - lvgl.label.update:
-              id: lbl_time_room
-              text: !lambda |-
-                auto time = id(homeassistant_time).now();
-                return time.strftime("%H:%M");
-          - lvgl.label.update:
-              id: lbl_time_music
-              text: !lambda |-
-                auto time = id(homeassistant_time).now();
-                return time.strftime("%H:%M");
-          - lvgl.label.update:
-              id: lbl_time_tv
-              text: !lambda |-
-                auto time = id(homeassistant_time).now();
-                return time.strftime("%H:%M");
-
-psram:
-  mode: quad
-  speed: 80MHz
-
-http_request:
-  useragent: esphome/omote
-  timeout: 10s
-
-online_image:
-  - id: album_art
-    url: "https://via.placeholder.com/100"
-    format: PNG
-    type: RGB565
-    resize: 100x100
-    on_download_finished:
-      - lvgl.image.update:
-          id: img_album_art
-          src: album_art
-  - id: tv_art
-    url: "https://via.placeholder.com/80"
-    format: PNG
-    type: RGB565
-    resize: 80x80
-    on_download_finished:
-      - lvgl.image.update:
-          id: img_tv_art
-          src: tv_art
 
 i2c:
   sda: GPIO20
@@ -2362,4 +2406,3 @@ remote_transmitter:
     inverted: True
   carrier_duty_percent: 50%
   use_dma: True
-  non_blocking: true
