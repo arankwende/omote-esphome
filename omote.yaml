@@ -58,6 +58,8 @@ substitutions:
   static_ip: 192.168.1.101
   gateway: 192.168.1.1
   subnet: 255.255.255.0
+  dns1: 192.168.1.1
+  dns2: 8.8.8.8
 
 esphome:
   name: ${name}
@@ -67,44 +69,6 @@ esphome:
     - priority: 600
       then:
         - output.turn_off: lcd_rd
-    # Configure LIS3DH accelerometer for motion-wake interrupt on INT1
-    - priority: 500
-      then:
-        - lambda: |-
-            i2c::I2CDevice lis3dh;
-            lis3dh.set_i2c_bus(id(i2c_bus));
-            lis3dh.set_i2c_address(0x19);
-
-            // Verify LIS3DH is present (WHO_AM_I should be 0x33)
-            uint8_t who = 0;
-            lis3dh.read_byte(0x0F, &who);
-            if (who != 0x33) {
-              ESP_LOGE("lis3dh", "LIS3DH not found! WHO_AM_I=0x%02X (expected 0x33)", who);
-              return;
-            }
-
-            // CTRL_REG1: 10Hz ODR, low-power mode, all axes enabled
-            lis3dh.write_byte(0x20, 0x2F);
-            // CTRL_REG2: High-pass filter enabled for INT1
-            lis3dh.write_byte(0x21, 0x09);
-            // CTRL_REG3: IA1 interrupt routed to INT1 pin
-            lis3dh.write_byte(0x22, 0x40);
-            // CTRL_REG4: ±2g full scale
-            lis3dh.write_byte(0x23, 0x00);
-            // CTRL_REG5: Latch interrupt on INT1
-            lis3dh.write_byte(0x24, 0x08);
-            // INT1_THS: Motion threshold ~256mg (16 × 16mg/LSB at ±2g)
-            lis3dh.write_byte(0x32, 0x10);
-            // INT1_DURATION: No minimum duration
-            lis3dh.write_byte(0x33, 0x00);
-            // INT1_CFG: OR combination of X/Y/Z high events
-            lis3dh.write_byte(0x30, 0x2A);
-
-            // Read INT1_SRC to clear any pending interrupt from before sleep
-            uint8_t src = 0;
-            lis3dh.read_byte(0x31, &src);
-
-            ESP_LOGI("lis3dh", "LIS3DH configured for motion wake (INT1)");
     # Turn on backlight after boot (including wake from deep sleep)
     - priority: -100
       then:
@@ -117,13 +81,13 @@ esphome:
 # NOTE: Comment out components that cause boot loops if hardware not detected
 external_components:
   # TCA8418 keypad matrix -github component
-  # - source: github://arankwende/esphome-tca8418_keypad
+  - source: github://arankwende/tca8418-keypad-esphome@main
   #   components: [tca8418_keypad]
   # TCA8418 keypad matrix - using local component based on Adafruit library
   - source:
       type: local
       path: components
-    components: [tca8418_keypad]
+    components: [ lis3dh_motion]
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -131,20 +95,17 @@ esp32:
   framework:
     type: esp-idf
 # Deep sleep configuration
-# Wake source: GPIO03 (power button)
-# Sleep is triggered manually by the power button (TCA8418 key 102)
+# Wake sources: GPIO08 (TCA8418 keypad interrupt - any keypress) and GPIO02 (LIS3DH motion)
 deep_sleep:
   id: deep_sleep_ctrl
-  wakeup_pin:
-    number: GPIO03
-#    allow_other_uses: true
-    inverted: true  # Wake on button press (LOW)
-    ignore_strapping_warning: true
-  wakeup_pin_mode: KEEP_AWAKE
-  # LIS3DH motion wake: INT1 pin on GPIO07 goes HIGH on motion
+  # Wake sources via ext1: GPIO08 (TCA8418 keypad interrupt) and GPIO02 (LIS3DH motion)
+  # Note: ext1 disables internal pull-ups/pull-downs
   esp32_ext1_wakeup:
     pins:
-      - GPIO07
+      - number: GPIO02
+        allow_other_uses: true
+      - number: GPIO08
+        allow_other_uses: true
     mode: ANY_HIGH
 # PSRAM configuration - CRITICAL for LVGL display
 # The Omote uses ESP32-S3 with PSRAM
@@ -152,7 +113,7 @@ psram:
   mode: octal
   speed: 80MHz
 logger:
-  level: INFO
+  level: DEBUG
 
 # Enable Home Assistant API
 api:
@@ -212,6 +173,8 @@ wifi:
       static_ip: ${static_ip}
       gateway: ${gateway}
       subnet: ${subnet}
+      dns1: ${dns1}
+      dns2: ${dns2}
 # web_server:  # Disabled temporarily to reduce memory usage
 #   port: 80
 
@@ -219,7 +182,7 @@ http_request:
   useragent: esphome/omote
   timeout: 10s
 
- online_image:  # Disabled temporarily - PNG decoding uses significant memory
+# online_image:  # Disabled temporarily - PNG decoding uses significant memory
 #   - id: album_art
 #     url: "https://via.placeholder.com/100"
 #     format: PNG
@@ -229,15 +192,15 @@ http_request:
 #       - lvgl.image.update:
 #           id: img_album_art
 #           src: album_art
-   - id: tv_art
-     url: "https://via.placeholder.com/80"
-     format: PNG
-     type: RGB565
-     resize: 80x80
-     on_download_finished:
-       - lvgl.image.update:
-           id: img_tv_art
-           src: tv_art
+#   - id: tv_art
+#     url: "https://via.placeholder.com/80"
+#     format: PNG
+#     type: RGB565
+#     resize: 80x80
+#     on_download_finished:
+#       - lvgl.image.update:
+#           id: img_tv_art
+#           src: tv_art
 
 time:
   - platform: homeassistant
@@ -264,6 +227,24 @@ time:
 
 #set up battery sensor (MAX17043/MAX17048 fuel gauge at I2C 0x36)
 sensor:
+  # LIS3DH accelerometer (I2C 0x19) - acceleration + motion interrupt for deep sleep wake
+  - platform: lis3dh_motion
+    id: accel
+    address: 0x19
+    threshold: 16  # ~256mg motion wake threshold (16mg/LSB at +/-2g)
+    update_interval: 60s
+    accel_x:
+      name: "Accel X"
+      id: accel_x
+    accel_y:
+      name: "Accel Y"
+      id: accel_y
+    accel_z:
+      name: "Accel Z"
+      id: accel_z
+    temperature:
+      name: "LIS3DH Temperature"
+      id: accel_temp
   - platform: max17043
     battery_voltage:
       id: battery_voltage
@@ -534,9 +515,27 @@ text_sensor:
 #            - light.turn_on: back_light
 
 binary_sensor:
-  # NOTE: Power button on GPIO03 removed - it conflicts with deep_sleep wakeup_pin
-  # The TCA8418 keypad button (btn_power_keypad, key 102) handles sleep entry
-  # GPIO03 is used exclusively for deep sleep wake via hardware interrupt
+  # LIS3DH motion interrupt on INT1 (GPIO02)
+  # Goes HIGH when motion detected, cleared by reading INT1_SRC
+  - platform: gpio
+    id: motion_detected
+    name: "Motion Detected"
+    pin:
+      number: GPIO02
+      mode: INPUT
+      allow_other_uses: true  # also used by ext1 deep sleep wake
+    filters:
+      - delayed_off: 100ms
+    on_press:
+      - logger.log: "Motion detected - waking screen"
+      - light.turn_on: back_light
+      - light.turn_on:
+          id: keypad_backlight
+          brightness: 100%
+      - delay: 20s
+      - light.turn_off: keypad_backlight
+      # Clear the latched interrupt so it can trigger again
+      - lambda: 'id(accel).clear_interrupt();'
 
   # ==================== TCA8418 MATRIX KEYPAD BUTTONS ====================
   # Using TCA8418 in keypad matrix mode (6 rows x 4 columns)
@@ -848,16 +847,14 @@ binary_sensor:
             entity_id: ${automation_scene_4}
 
   # Power button (GPIO ROW5 on TCA8418)
-  # DEBUG: Using ERROR level logging to ensure visibility
-#  - platform: tca8418_keypad
-#    tca8418_keypad_id: keypad
-#    id: btn_power_keypad
-#    key: 102
-#    name: "Power Button 11"
-#    on_press:
-#      - logger.log:
-#          format: "POWER BUTTON PRESSED - key 102 detected, entering deep sleep"
-#      - script.execute: script_enter_deep_sleep
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_power_keypad
+    key: 102
+    name: "Power Button"
+    on_press:
+      - logger.log: "Power button pressed - entering deep sleep"
+      - script.execute: script_enter_deep_sleep
 
 
 
@@ -917,15 +914,17 @@ script:
   # Deep sleep script
   - id: script_enter_deep_sleep
     then:
-      - logger.log: "Entering deep sleep..."
+      - logger.log:
+          level: WARN
+          format: ">>> DEEP SLEEP SCRIPT STARTED <<<"
       - globals.set:
           id: device_sleeping
           value: 'true'
-      # Turn off the backlight before sleeping
       - light.turn_off: back_light
-      # Small delay to ensure everything is ready
-      - delay: 100ms
-      # Enter deep sleep
+      - delay: 200ms
+      - logger.log:
+          level: WARN
+          format: ">>> ENTERING DEEP SLEEP NOW <<<"
       - deep_sleep.enter: deep_sleep_ctrl
 
   # Wake device script (called by power button or motion)
@@ -1303,7 +1302,7 @@ i2c:
   # Expected devices: 0x38 (FT63X6 touchscreen), 0x34 (TCA8418 keypad), 0x19 (LIS3DH)
   sda_pullup_enabled: true  # Enable internal pull-ups
   scl_pullup_enabled: true  # Enable internal pull-ups
-  scan: false
+  scan: true
   timeout: 100ms  # Add timeout to prevent hanging
 
 # TCA8418 Keypad Matrix Controller (based on Adafruit library)
@@ -1314,7 +1313,9 @@ tca8418_keypad:
   address: 0x34
   rows: 5
   cols: 5
-  interrupt_pin: 8
+  interrupt_pin:
+    number: 8
+    allow_other_uses: true
 
 # IMU sensor for motion wake detection (QMI8658 on Omote)
 # Used to wake device when picked up
@@ -1348,6 +1349,7 @@ light:
     restore_mode: RESTORE_DEFAULT_ON
     name: "LCD Backlight"
   - platform: monochromatic
+    id: keypad_backlight
     output: gpio_46
     restore_mode: RESTORE_DEFAULT_OFF
     name: "Keypad Backlight"
@@ -2451,6 +2453,7 @@ remote_receiver:
   use_dma: True
 
 remote_transmitter:
+  id: IR_TX
   pin:
     number: GPIO05
     inverted: True
