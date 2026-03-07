@@ -82,12 +82,7 @@ esphome:
 external_components:
   # TCA8418 keypad matrix -github component
   - source: github://arankwende/tca8418-keypad-esphome@main
-  #   components: [tca8418_keypad]
-  # TCA8418 keypad matrix - using local component based on Adafruit library
-  - source:
-      type: local
-      path: components
-    components: [ lis3dh_motion]
+  - source: github://arankwende/lis3dh-esphome@main
 
 esp32:
   board: esp32-s3-devkitc-1
