@@ -58,6 +58,8 @@ substitutions:
   static_ip: 192.168.1.101
   gateway: 192.168.1.1
   subnet: 255.255.255.0
+  dns1: 192.168.1.1
+  dns2: 8.8.8.8
 
 esphome:
   name: ${name}
@@ -79,13 +81,13 @@ esphome:
 # NOTE: Comment out components that cause boot loops if hardware not detected
 external_components:
   # TCA8418 keypad matrix -github component
-  # - source: github://arankwende/esphome-tca8418_keypad
+  - source: github://arankwende/tca8418-keypad-esphome@main
   #   components: [tca8418_keypad]
   # TCA8418 keypad matrix - using local component based on Adafruit library
   - source:
       type: local
       path: components
-    components: [tca8418_keypad]
+    components: [ lis3dh_motion]
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -93,30 +95,25 @@ esp32:
   framework:
     type: esp-idf
 # Deep sleep configuration
-# Wake source: GPIO03 (power button)
-# Sleep is triggered manually by the power button (TCA8418 key 102)
+# Wake sources: GPIO08 (TCA8418 keypad interrupt - any keypress) and GPIO02 (LIS3DH motion)
 deep_sleep:
   id: deep_sleep_ctrl
-  wakeup_pin:
-    number: GPIO03
-#    allow_other_uses: true
-    inverted: true  # Wake on button press (LOW)
-    ignore_strapping_warning: true
-  wakeup_pin_mode: KEEP_AWAKE
-  # Note: For gyroscope wake, the IMU INT pin would need to be connected
-  # to an EXT1 capable GPIO (0-21 on ESP32-S3). If your Omote has this,
-  # add it to esp32_ext1_wakeup below
-  # esp32_ext1_wakeup:
-  #   pins:
-  #     - GPIO07  # IMU INT pin if available
-  #   mode: ANY_HIGH
+  # Wake sources via ext1: GPIO08 (TCA8418 keypad interrupt) and GPIO02 (LIS3DH motion)
+  # Note: ext1 disables internal pull-ups/pull-downs
+  esp32_ext1_wakeup:
+    pins:
+      - number: GPIO02
+        allow_other_uses: true
+      - number: GPIO08
+        allow_other_uses: true
+    mode: ANY_HIGH
 # PSRAM configuration - CRITICAL for LVGL display
 # The Omote uses ESP32-S3 with PSRAM
 psram:
   mode: octal
   speed: 80MHz
 logger:
-  level: INFO
+  level: DEBUG
 
 # Enable Home Assistant API
 api:
@@ -176,6 +173,8 @@ wifi:
       static_ip: ${static_ip}
       gateway: ${gateway}
       subnet: ${subnet}
+      dns1: ${dns1}
+      dns2: ${dns2}
 # web_server:  # Disabled temporarily to reduce memory usage
 #   port: 80
 
@@ -228,6 +227,24 @@ time:
 
 #set up battery sensor (MAX17043/MAX17048 fuel gauge at I2C 0x36)
 sensor:
+  # LIS3DH accelerometer (I2C 0x19) - acceleration + motion interrupt for deep sleep wake
+  - platform: lis3dh_motion
+    id: accel
+    address: 0x19
+    threshold: 16  # ~256mg motion wake threshold (16mg/LSB at +/-2g)
+    update_interval: 60s
+    accel_x:
+      name: "Accel X"
+      id: accel_x
+    accel_y:
+      name: "Accel Y"
+      id: accel_y
+    accel_z:
+      name: "Accel Z"
+      id: accel_z
+    temperature:
+      name: "LIS3DH Temperature"
+      id: accel_temp
   - platform: max17043
     battery_voltage:
       id: battery_voltage
@@ -329,6 +346,11 @@ sensor:
 button:
   - platform: restart
     name: "Restart"
+  - platform: template
+    name: "TV IR"
+    on_press:
+      - script.execute: script_tv_power_toggle # This executes the script defined 
+
 text_sensor:
   # Weather condition from weather entity
   - platform: homeassistant
@@ -493,9 +515,27 @@ text_sensor:
 #            - light.turn_on: back_light
 
 binary_sensor:
-  # NOTE: Power button on GPIO03 removed - it conflicts with deep_sleep wakeup_pin
-  # The TCA8418 keypad button (btn_power_keypad, key 102) handles sleep entry
-  # GPIO03 is used exclusively for deep sleep wake via hardware interrupt
+  # LIS3DH motion interrupt on INT1 (GPIO02)
+  # Goes HIGH when motion detected, cleared by reading INT1_SRC
+  - platform: gpio
+    id: motion_detected
+    name: "Motion Detected"
+    pin:
+      number: GPIO02
+      mode: INPUT
+      allow_other_uses: true  # also used by ext1 deep sleep wake
+    filters:
+      - delayed_off: 100ms
+    on_press:
+      - logger.log: "Motion detected - waking screen"
+      - light.turn_on: back_light
+      - light.turn_on:
+          id: keypad_backlight
+          brightness: 100%
+      - delay: 20s
+      - light.turn_off: keypad_backlight
+      # Clear the latched interrupt so it can trigger again
+      - lambda: 'id(accel).clear_interrupt();'
 
   # ==================== TCA8418 MATRIX KEYPAD BUTTONS ====================
   # Using TCA8418 in keypad matrix mode (6 rows x 4 columns)
@@ -807,16 +847,14 @@ binary_sensor:
             entity_id: ${automation_scene_4}
 
   # Power button (GPIO ROW5 on TCA8418)
-  # DEBUG: Using ERROR level logging to ensure visibility
-#  - platform: tca8418_keypad
-#    tca8418_keypad_id: keypad
-#    id: btn_power_keypad
-#    key: 102
-#    name: "Power Button 11"
-#    on_press:
-#      - logger.log:
-#          format: "POWER BUTTON PRESSED - key 102 detected, entering deep sleep"
-#      - script.execute: script_enter_deep_sleep
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_power_keypad
+    key: 102
+    name: "Power Button"
+    on_press:
+      - logger.log: "Power button pressed - entering deep sleep"
+      - script.execute: script_enter_deep_sleep
 
 
 
@@ -876,15 +914,17 @@ script:
   # Deep sleep script
   - id: script_enter_deep_sleep
     then:
-      - logger.log: "Entering deep sleep..."
+      - logger.log:
+          level: WARN
+          format: ">>> DEEP SLEEP SCRIPT STARTED <<<"
       - globals.set:
           id: device_sleeping
           value: 'true'
-      # Turn off the backlight before sleeping
       - light.turn_off: back_light
-      # Small delay to ensure everything is ready
-      - delay: 100ms
-      # Enter deep sleep
+      - delay: 200ms
+      - logger.log:
+          level: WARN
+          format: ">>> ENTERING DEEP SLEEP NOW <<<"
       - deep_sleep.enter: deep_sleep_ctrl
 
   # Wake device script (called by power button or motion)
@@ -1110,10 +1150,14 @@ script:
   - id: script_tv_power_toggle
     then:
       - logger.log: "TV: Power Toggle"
-      - remote_transmitter.${remote_type}:
-          data: ${tv_ir_cmd_power_toggle}
+#      - remote_transmitter.${remote_type}:
+#          data: ${tv_ir_cmd_power_toggle}
 #          address: ${tv_ir_address}
 #          command: ${tv_ir_cmd_power_toggle}
+      - remote_transmitter.transmit_raw:
+          transmitter_id: IR_TX
+          carrier_frequency: 38kHz
+          code: [2703, -916, 442, -876, 463, -436, 465, -458, 436, -876, 913, -438, 462, -435, 458, -464, 437, -459, 435, -436, 461, -464, 437, -434, 466, -456, 440, -457, 435, -461, 436, -462, 433, -437, 909, -440, 459, -910, 435, -464, 436]
 
   # TV media player control scripts
   - id: script_tv_media_play_pause
@@ -1251,13 +1295,14 @@ script:
 
 
 i2c:
+  id: i2c_bus
   sda: GPIO20
   scl: GPIO19
   frequency: 100kHz  # Reduced from 400kHz for more reliable communication
-  # Expected devices: 0x38 (FT63X6 touchscreen), 0x34 (TCA8418 keypad), 0x6B (IMU)
+  # Expected devices: 0x38 (FT63X6 touchscreen), 0x34 (TCA8418 keypad), 0x19 (LIS3DH)
   sda_pullup_enabled: true  # Enable internal pull-ups
   scl_pullup_enabled: true  # Enable internal pull-ups
-  scan: false
+  scan: true
   timeout: 100ms  # Add timeout to prevent hanging
 
 # TCA8418 Keypad Matrix Controller (based on Adafruit library)
@@ -1268,7 +1313,9 @@ tca8418_keypad:
   address: 0x34
   rows: 5
   cols: 5
-  interrupt_pin: 8
+  interrupt_pin:
+    number: 8
+    allow_other_uses: true
 
 # IMU sensor for motion wake detection (QMI8658 on Omote)
 # Used to wake device when picked up
@@ -1302,6 +1349,7 @@ light:
     restore_mode: RESTORE_DEFAULT_ON
     name: "LCD Backlight"
   - platform: monochromatic
+    id: keypad_backlight
     output: gpio_46
     restore_mode: RESTORE_DEFAULT_OFF
     name: "Keypad Backlight"
@@ -1523,7 +1571,7 @@ lvgl:
             width: 180
             text_font: roboto_24
             text: "--.-°C"
-            text_color: 0xFFFFFF
+            text_color: 0x4FC3F7
 
         # ===== AC CONTROLS =====
         # Target temp display
@@ -1817,7 +1865,7 @@ lvgl:
                         id: slider_blinds_left
                         x: 50
                         y: 50
-                        width: 140
+                        width: 120
                         height: 25
                         min_value: 0
                         max_value: 100
@@ -1845,7 +1893,7 @@ lvgl:
                         id: slider_blinds_right
                         x: 50
                         y: 95
-                        width: 140
+                        width: 120
                         height: 25
                         min_value: 0
                         max_value: 100
@@ -1867,7 +1915,7 @@ lvgl:
                         id: btn_blinds_open_all
                         x: 10
                         y: 140
-                        width: 85
+                        width: 65
                         height: 40
                         bg_color: 0x333333
                         radius: 8
@@ -1895,9 +1943,9 @@ lvgl:
                               value: 100
                     - button:
                         id: btn_blinds_close_all
-                        x: 105
+                        x: 85
                         y: 140
-                        width: 85
+                        width: 65
                         height: 40
                         bg_color: 0x333333
                         radius: 8
@@ -2405,6 +2453,7 @@ remote_receiver:
   use_dma: True
 
 remote_transmitter:
+  id: IR_TX
   pin:
     number: GPIO05
     inverted: True
