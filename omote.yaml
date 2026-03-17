@@ -313,31 +313,7 @@ sensor:
     id: music_volume
     entity_id: media_player.${ma_player}
     attribute: volume_level
-  # QMI8658 IMU sensor for motion wake detection
-  # NOTE: Commented out - may cause boot loop if sensor not present
-  # Uncomment after confirming device boots and IMU is detected on I2C scan
-  # - platform: qmi8658
-  #   address: 0x6B
-  #   acceleration_x:
-  #     id: accel_x
-  #     internal: true
-  #   acceleration_y:
-  #     id: accel_y
-  #     internal: true
-  #   acceleration_z:
-  #     id: accel_z
-  #     internal: true
-  #   gyroscope_x:
-  #     id: gyro_x
-  #     internal: true
-  #   gyroscope_y:
-  #     id: gyro_y
-  #     internal: true
-  #   gyroscope_z:
-  #     id: gyro_z
-  #     internal: true
-  #   update_interval: 500ms
-
+  
 button:
   - platform: restart
     name: "Restart"
@@ -532,20 +508,6 @@ binary_sensor:
       # Clear the latched interrupt so it can trigger again
       - lambda: 'id(accel).clear_interrupt();'
 
-  # ==================== TCA8418 MATRIX KEYPAD BUTTONS ====================
-  # Using TCA8418 in keypad matrix mode (6 rows x 4 columns)
-  # Matrix key formula: (row * 10) + col + 1
-  # Row 0: keys 1, 2, 3, 4
-  # Row 1: keys 11, 12, 13, 14
-  # Row 2: keys 21, 22, 23, 24
-  # Row 3: keys 31, 32, 33, 34
-  # Row 4: keys 41, 42, 43, 44
-  # Row 5: keys 51, 52, 53, 54
-  #
-  # You can also use row/col syntax: row: 0, col: 0 instead of key: 1
-  #
-  # NOTE: After flashing, check the logs to see which key codes are
-  # generated when you press physical buttons, then update accordingly.
 
   # First row of round buttons
   - platform: tca8418_keypad
