@@ -3,10 +3,7 @@ substitutions:
   friendly_name: Omote Remote
   ha_api_key: "YourHAAPIKey"
   ota_key: "YourOTAKey"
-  # Music Assistant Configuration
-  ma_host: "192.168.1.100"
-  ma_port: "8095"
-  ma_token: "your_token_here"
+  # Music Assistant player entity (without the media_player. prefix)
   ma_player: "room_speaker"
   # Home Assistant Entity IDs (update these to match your setup)
   climate_entity: climate.room_ac
@@ -36,6 +33,11 @@ substitutions:
   tv_remote_entity: remote.room_tv
   # Weather entity for status bar
   weather_entity: weather.home
+  # Home Assistant base URL (needed to resolve relative entity_picture URLs)
+  ha_url: "http://homeassistant.local:8123"
+  # Music Assistant playlist URIs for quick-play buttons (find these in MA library)
+  ma_morning_playlist: "library://playlist/1"
+  ma_evening_playlist: "library://playlist/2"
   # TV IR codes (first put the proper protocol action in remote_type, then fill the rest)
   # Format: depending on the protocol, it could be just "data:" as with pronto or address, command (hex values), you need to check which case and comment data and uncomment the others if its address command
   remote_type: transmit_pronto
@@ -60,6 +62,7 @@ substitutions:
   subnet: 255.255.255.0
   dns1: 192.168.1.1
   dns2: 8.8.8.8
+
 
 esphome:
   name: ${name}
@@ -90,18 +93,16 @@ esp32:
   framework:
     type: esp-idf
 # Deep sleep configuration
-# Wake sources: GPIO08 (TCA8418 keypad interrupt - any keypress) and GPIO02 (LIS3DH motion)
+# Wake source: GPIO02 (LIS3DH motion interrupt, active HIGH)
+# Note: GPIO08 (TCA8418 INT) is active-LOW (idle HIGH), incompatible with ANY_HIGH mode
 deep_sleep:
   id: deep_sleep_ctrl
-  # Wake sources via ext1: GPIO08 (TCA8418 keypad interrupt) and GPIO02 (LIS3DH motion)
-  # Note: ext1 disables internal pull-ups/pull-downs
-  esp32_ext1_wakeup:
-    pins:
-      - number: GPIO02
-        allow_other_uses: true
-      - number: GPIO08
-        allow_other_uses: true
-    mode: ANY_HIGH
+  wakeup_pin:
+    number: GPIO03
+#    allow_other_uses: true
+    inverted: true  # Wake on button press (LOW)
+    ignore_strapping_warning: true
+  wakeup_pin_mode: KEEP_AWAKE
 # PSRAM configuration - CRITICAL for LVGL display
 # The Omote uses ESP32-S3 with PSRAM
 psram:
@@ -177,25 +178,22 @@ http_request:
   useragent: esphome/omote
   timeout: 10s
 
-# online_image:  # Disabled temporarily - PNG decoding uses significant memory
-#   - id: album_art
-#     url: "https://via.placeholder.com/100"
-#     format: PNG
-#     type: RGB565
-#     resize: 100x100
-#     on_download_finished:
-#       - lvgl.image.update:
-#           id: img_album_art
-#           src: album_art
-#   - id: tv_art
-#     url: "https://via.placeholder.com/80"
-#     format: PNG
-#     type: RGB565
-#     resize: 80x80
-#     on_download_finished:
-#       - lvgl.image.update:
-#           id: img_tv_art
-#           src: tv_art
+online_image:
+    - id: album_art
+      url: "https://via.placeholder.com/100"
+      format: JPEG
+      type: RGB565
+      resize: 100x100
+      on_download_finished:
+        - logger.log: "Album art downloaded OK"
+        - lvgl.image.update:
+            id: img_album_art
+            src: album_art
+        - lvgl.widget.redraw:
+      on_error:
+        - logger.log:
+            level: WARN
+            format: "Album art download FAILED"
 
 time:
   - platform: homeassistant
@@ -313,30 +311,10 @@ sensor:
     id: music_volume
     entity_id: media_player.${ma_player}
     attribute: volume_level
-  # QMI8658 IMU sensor for motion wake detection
-  # NOTE: Commented out - may cause boot loop if sensor not present
-  # Uncomment after confirming device boots and IMU is detected on I2C scan
-  # - platform: qmi8658
-  #   address: 0x6B
-  #   acceleration_x:
-  #     id: accel_x
-  #     internal: true
-  #   acceleration_y:
-  #     id: accel_y
-  #     internal: true
-  #   acceleration_z:
-  #     id: accel_z
-  #     internal: true
-  #   gyroscope_x:
-  #     id: gyro_x
-  #     internal: true
-  #   gyroscope_y:
-  #     id: gyro_y
-  #     internal: true
-  #   gyroscope_z:
-  #     id: gyro_z
-  #     internal: true
-  #   update_interval: 500ms
+    on_value:
+      - lvgl.slider.update:
+          id: slider_volume
+          value: !lambda 'return (int)(x * 100);'
 
 button:
   - platform: restart
@@ -452,28 +430,22 @@ text_sensor:
     id: music_album_art
     entity_id: media_player.${ma_player}
     attribute: entity_picture
-    # on_value disabled - online_image component disabled for debugging
-    # on_value:
-    #   - if:
-    #       condition:
-    #         lambda: 'return !x.empty();'
-    #       then:
-    #         - online_image.set_url:
-    #             id: album_art
-    #             url: !lambda 'return x;'
-  # TV media player art - on_value disabled, online_image component disabled for debugging
-  - platform: homeassistant
-    id: tv_album_art
-    entity_id: ${tv_media_player}
-    attribute: entity_picture
-    # on_value:
-    #   - if:
-    #       condition:
-    #         lambda: 'return !x.empty();'
-    #       then:
-    #         - online_image.set_url:
-    #             id: tv_art
-    #             url: !lambda 'return x;'
+    on_value:
+      - if:
+          condition:
+            lambda: 'return !x.empty();'
+          then:
+            - logger.log:
+                level: DEBUG
+                format: "Album art URL: %s"
+                args: ['x.c_str()']
+            - online_image.set_url:
+                id: album_art
+                # Handle both relative (/api/...) and absolute (http://...) URLs
+                url: !lambda |-
+                  if (x.rfind("http", 0) == 0) return x;
+                  return std::string("${ha_url}") + x;
+  # TV media player art - no display widget on TV page, sensor omitted
   # TV media player state for play/pause icon
   - platform: homeassistant
     id: tv_media_state
@@ -518,7 +490,6 @@ binary_sensor:
     pin:
       number: GPIO02
       mode: INPUT
-      allow_other_uses: true  # also used by ext1 deep sleep wake
     filters:
       - delayed_off: 100ms
     on_press:
@@ -533,21 +504,7 @@ binary_sensor:
       - lambda: 'id(accel).clear_interrupt();'
 
   # ==================== TCA8418 MATRIX KEYPAD BUTTONS ====================
-  # Using TCA8418 in keypad matrix mode (6 rows x 4 columns)
-  # Matrix key formula: (row * 10) + col + 1
-  # Row 0: keys 1, 2, 3, 4
-  # Row 1: keys 11, 12, 13, 14
-  # Row 2: keys 21, 22, 23, 24
-  # Row 3: keys 31, 32, 33, 34
-  # Row 4: keys 41, 42, 43, 44
-  # Row 5: keys 51, 52, 53, 54
   #
-  # You can also use row/col syntax: row: 0, col: 0 instead of key: 1
-  #
-  # NOTE: After flashing, check the logs to see which key codes are
-  # generated when you press physical buttons, then update accordingly.
-
-  # First row of round buttons
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
     id: btn_1
@@ -711,7 +668,6 @@ binary_sensor:
           then:
             - script.execute: script_tv_volume_up
           else:
-            # Room page (0) or Music page (1) - control media player
             - script.execute: script_volume_up
 
   - platform: tca8418_keypad
@@ -727,7 +683,6 @@ binary_sensor:
           then:
             - script.execute: script_tv_volume_down
           else:
-            # Room page (0) or Music page (1) - control media player
             - script.execute: script_volume_down
 
   - platform: tca8418_keypad
@@ -743,7 +698,6 @@ binary_sensor:
           then:
             - script.execute: script_tv_mute
           else:
-            # Room page (0) or Music page (1) - control media player
             - homeassistant.service:
                 service: media_player.volume_mute
                 data:
@@ -841,7 +795,6 @@ binary_sensor:
           data:
             entity_id: ${automation_scene_4}
 
-  # Power button (GPIO ROW5 on TCA8418)
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
     id: btn_power_keypad
@@ -872,17 +825,6 @@ globals:
   - id: touch_y_end
     type: int
     initial_value: "0"
-  # Playlist storage (max 20 playlists)
-  - id: playlist_names
-    type: std::vector<std::string>
-  - id: playlist_uris
-    type: std::vector<std::string>
-  - id: selected_playlist_idx
-    type: int
-    initial_value: "0"
-  - id: playlists_loaded
-    type: bool
-    initial_value: "false"
   # Device sleep state tracking
   - id: device_sleeping
     type: bool
@@ -898,12 +840,12 @@ globals:
 
 script:
   # Reset backlight timeout - call this on any user activity
-#  - id: script_reset_backlight_timeout
-#    then:
-#      - light.turn_on: back_light
-#      - globals.set:
-#          id: last_activity_time
-#          value: !lambda 'return millis();'
+  - id: script_reset_backlight_timeout
+    then:
+      - light.turn_on: back_light
+      - globals.set:
+          id: last_activity_time
+          value: !lambda 'return millis();'
 
 
   # Deep sleep script
@@ -917,49 +859,40 @@ script:
           value: 'true'
       - light.turn_off: back_light
       - delay: 200ms
+#      - logger.log:
+#          level: WARN
+#          format: ">>> DISCONNECTING WIFI <<<"
+#      - wifi.disable:
+#      - delay: 500ms
       - logger.log:
           level: WARN
           format: ">>> ENTERING DEEP SLEEP NOW <<<"
       - deep_sleep.enter: deep_sleep_ctrl
 
-  # Wake device script (called by power button or motion)
-#  - id: script_wake_device
-#    then:
-#      - logger.log: "Waking device..."
-#      - globals.set:
-#          id: device_sleeping
-#          value: 'false'
-#      - light.turn_on: back_light
-#      - globals.set:
-#          id: last_activity_time
-#          value: !lambda 'return millis();'
-#      - lvgl.resume:
-#  - id: script_wake_device
-#    then:
-#      - logger.log: "Waking device..."
-#      - globals.set:
-#          id: device_sleeping
-#          value: 'false'
-#      - light.turn_on: back_light
-#      - lvgl.resume:
-#      - lvgl.widget.redraw:
-  # Volume up script for Music Assistant
+
+  # Wake device script
+  - id: script_wake_device
+    then:
+      - logger.log: "Waking device..."
+      - globals.set:
+          id: device_sleeping
+          value: 'false'
+      - light.turn_on: back_light
+      - lvgl.resume:
+      - lvgl.widget.redraw:
   - id: script_volume_up
     then:
-      - logger.log: "Volume Up"
-      - lambda: |-
-          int current_vol = (int)(id(music_volume).state * 100);
-          int new_vol = std::min(100, current_vol + 5);
-          id(script_music_volume).execute(new_vol);
+      - homeassistant.service:
+          service: media_player.volume_up
+          data:
+            entity_id: media_player.${ma_player}
 
-  # Volume down script for Music Assistant
   - id: script_volume_down
     then:
-      - logger.log: "Volume Down"
-      - lambda: |-
-          int current_vol = (int)(id(music_volume).state * 100);
-          int new_vol = std::max(0, current_vol - 5);
-          id(script_music_volume).execute(new_vol);
+      - homeassistant.service:
+          service: media_player.volume_down
+          data:
+            entity_id: media_player.${ma_player}
 
   # Page navigation scripts (3 pages: room, music, tv)
   - id: script_next_page
@@ -980,62 +913,27 @@ script:
           animation: MOVE_RIGHT
           time: 300ms
 
-  # Music Assistant API scripts
+  # Music control scripts (via Home Assistant media_player services)
   - id: script_music_play_pause
     then:
-      - if:
-          condition:
-            lambda: 'return id(music_playing);'
-          then:
-            - http_request.post:
-                url: !lambda 'return "http://${ma_host}:${ma_port}/api";'
-                request_headers:
-                  Authorization: "Bearer ${ma_token}"
-                  Content-Type: "application/json"
-                body: !lambda |-
-                  return "{\"command\":\"player_queues/pause\",\"args\":{\"queue_id\":\"${ma_player}\"}}";
-          else:
-            - http_request.post:
-                url: !lambda 'return "http://${ma_host}:${ma_port}/api";'
-                request_headers:
-                  Authorization: "Bearer ${ma_token}"
-                  Content-Type: "application/json"
-                body: !lambda |-
-                  return "{\"command\":\"player_queues/play\",\"args\":{\"queue_id\":\"${ma_player}\"}}";
+      - homeassistant.service:
+          service: media_player.media_play_pause
+          data:
+            entity_id: media_player.${ma_player}
 
   - id: script_music_next
     then:
-      - http_request.post:
-          url: !lambda 'return "http://${ma_host}:${ma_port}/api";'
-          request_headers:
-            Authorization: "Bearer ${ma_token}"
-            Content-Type: "application/json"
-          body: !lambda |-
-            return "{\"command\":\"player_queues/next\",\"args\":{\"queue_id\":\"${ma_player}\"}}";
+      - homeassistant.service:
+          service: media_player.media_next_track
+          data:
+            entity_id: media_player.${ma_player}
 
   - id: script_music_prev
     then:
-      - http_request.post:
-          url: !lambda 'return "http://${ma_host}:${ma_port}/api";'
-          request_headers:
-            Authorization: "Bearer ${ma_token}"
-            Content-Type: "application/json"
-          body: !lambda |-
-            return "{\"command\":\"player_queues/previous\",\"args\":{\"queue_id\":\"${ma_player}\"}}";
-
-  - id: script_music_volume
-    parameters:
-      volume: int
-    then:
-      - http_request.post:
-          url: !lambda 'return "http://${ma_host}:${ma_port}/api";'
-          request_headers:
-            Authorization: "Bearer ${ma_token}"
-            Content-Type: "application/json"
-          body: !lambda |-
-            char buf[256];
-            snprintf(buf, sizeof(buf), "{\"command\":\"players/cmd/volume_set\",\"args\":{\"player_id\":\"${ma_player}\",\"volume_level\":%d}}", volume);
-            return std::string(buf);
+      - homeassistant.service:
+          service: media_player.media_previous_track
+          data:
+            entity_id: media_player.${ma_player}
 
   # TV control scripts - DPAD navigation
   - id: script_tv_up
@@ -1179,7 +1077,6 @@ script:
           data:
             entity_id: ${tv_media_player}
 
-  # App launch scripts - using Home Assistant service calls
   - id: script_launch_jellyfin
     then:
       - logger.log: "Launching Jellyfin"
@@ -1225,84 +1122,36 @@ script:
             entity_id: ${tv_media_player}
             source: "Disney+"
 
-  # Playlist scripts
-  - id: script_fetch_playlists
+  # Playlist quick-play scripts
+  - id: script_play_morning_playlist
     then:
-      - logger.log: "Fetching playlists from Music Assistant"
-      - http_request.post:
-          url: "http://${ma_host}:${ma_port}/api"
-          capture_response: true
-          max_response_buffer_size: 2048
-          request_headers:
-            Authorization: "Bearer ${ma_token}"
-            Content-Type: "application/json"
-          body: '{"command":"music/playlists/library_items","args":{"limit":20}}'
-          on_response:
-            then:
-              - lambda: |-
-                  if (response->status_code == 200) {
-                    // Clear existing playlists
-                    id(playlist_names).clear();
-                    id(playlist_uris).clear();
+      - homeassistant.service:
+          service: media_player.play_media
+          data:
+            entity_id: media_player.${ma_player}
+            media_content_id: "${ma_morning_playlist}"
+            media_content_type: "music"
 
-                    // Store body for parsing
-                    std::string response_body = body;
-
-                    // Log success
-                    ESP_LOGD("playlists", "Received response: %d bytes", response_body.length());
-
-                    // TODO: Implement proper JSON parsing
-                    // For now, set some test playlists
-                    id(playlist_names).push_back("Playlist 1");
-                    id(playlist_names).push_back("Playlist 2");
-                    id(playlist_names).push_back("Playlist 3");
-                    id(playlist_uris).push_back("library://playlist/1");
-                    id(playlist_uris).push_back("library://playlist/2");
-                    id(playlist_uris).push_back("library://playlist/3");
-                    id(playlists_loaded) = true;
-
-                    ESP_LOGI("playlists", "Loaded %d playlists", id(playlist_names).size());
-                  } else {
-                    ESP_LOGE("playlists", "Failed to fetch playlists: %d", response->status_code);
-                  }
-
-  - id: script_play_selected_playlist
+  - id: script_play_evening_playlist
     then:
-      - if:
-          condition:
-            lambda: 'return id(playlists_loaded) && id(selected_playlist_idx) < id(playlist_uris).size();'
-          then:
-            - lambda: |-
-                std::string uri = id(playlist_uris)[id(selected_playlist_idx)];
-                ESP_LOGD("playlists", "Playing playlist: %s", uri.c_str());
-            - http_request.post:
-                url: "http://${ma_host}:${ma_port}/api"
-                request_headers:
-                  Authorization: "Bearer ${ma_token}"
-                  Content-Type: "application/json"
-                body: !lambda |-
-                  std::string uri = id(playlist_uris)[id(selected_playlist_idx)];
-                  char buf[512];
-                  snprintf(buf, sizeof(buf),
-                    "{\"command\":\"player_queues/play_media\",\"args\":{\"queue_id\":\"${ma_player}\",\"media\":\"%s\",\"option\":\"replace\"}}",
-                    uri.c_str());
-                  return std::string(buf);
+      - homeassistant.service:
+          service: media_player.play_media
+          data:
+            entity_id: media_player.${ma_player}
+            media_content_id: "${ma_evening_playlist}"
+            media_content_type: "music"
 
 
 i2c:
   id: i2c_bus
   sda: GPIO20
   scl: GPIO19
-  frequency: 100kHz  # Reduced from 400kHz for more reliable communication
-  # Expected devices: 0x38 (FT63X6 touchscreen), 0x34 (TCA8418 keypad), 0x19 (LIS3DH)
-  sda_pullup_enabled: true  # Enable internal pull-ups
-  scl_pullup_enabled: true  # Enable internal pull-ups
+  frequency: 100kHz  
+  sda_pullup_enabled: true  
+  scl_pullup_enabled: true 
   scan: true
-  timeout: 100ms  # Add timeout to prevent hanging
+  timeout: 100ms  
 
-# TCA8418 Keypad Matrix Controller (based on Adafruit library)
-# Matrix mode: keys 1-24 for 6x4 matrix (row * 10 + col + 1)
-# GPIO mode: keys 97-104 = ROW0-ROW7, keys 105-114 = COL0-COL9
 tca8418_keypad:
   id: keypad
   address: 0x34
@@ -1310,10 +1159,6 @@ tca8418_keypad:
   cols: 5
   interrupt_pin:
     number: 8
-    allow_other_uses: true
-
-# IMU sensor for motion wake detection (QMI8658 on Omote)
-# Used to wake device when picked up
 
 output:
   # LCD Backlight GPIO
@@ -1370,8 +1215,7 @@ touchscreen:
             then:
               - lvgl.resume:
               - lvgl.widget.redraw:
-        # Wake screen on touch and reset the 2-minute timeout
-#        - script.execute: script_reset_backlight_timeout
+        - script.execute: script_reset_backlight_timeout
 
 spi:
   - id: quad_spi_bus
@@ -1450,6 +1294,8 @@ font:
       # Transport controls
       - "\U000F045F"  # mdi:rewind
       - "\U000F0211"  # mdi:fast-forward
+      # Playlist buttons
+      - "\U000F0594"  # mdi:weather-night (evening)
   - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
     id: mdi_40
     size: 40
@@ -1497,12 +1343,12 @@ lvgl:
     timeout: 120s
     then:
       - logger.log: "LVGL idle - 2 minutes of inactivity"
- #     - if:
- #         condition:
- #           lambda: 'return id(is_nighttime);'
- #         then:
- #           - logger.log: "Nighttime - turning off backlight"
- #           - light.turn_off: back_light
+      - if:
+          condition:
+            lambda: 'return id(is_nighttime);'
+          then:
+            - logger.log: "Nighttime - turning off backlight"
+            - light.turn_off: back_light
   pages:
     # ==================== PAGE 1: ROOM CONTROL ====================
     - id: room_page
@@ -1973,15 +1819,8 @@ lvgl:
         - script.execute: script_next_page
       on_swipe_right:
         - script.execute: script_prev_page
-      on_load:
-        - if:
-            condition:
-              lambda: 'return !id(playlists_loaded);'
-            then:
-              - script.execute: script_fetch_playlists
       widgets:
         # ===== TOP STATUS BAR =====
-        # Weather icon (left)
         - label:
             id: lbl_weather_music
             x: 5
@@ -1991,7 +1830,6 @@ lvgl:
             text_font: mdi_20
             text: "\U000F0599"
             text_color: 0xFFCC00
-        # Outdoor temperature
         - label:
             id: lbl_outdoor_temp_music
             x: 28
@@ -2000,7 +1838,6 @@ lvgl:
             text_font: roboto_12
             text: "--°"
             text_color: 0x333333
-        # Time (center)
         - label:
             id: lbl_time_music
             x: 95
@@ -2010,7 +1847,6 @@ lvgl:
             text: "--:--"
             text_color: 0x333333
             text_align: center
-        # WiFi indicator (right)
         - label:
             id: lbl_wifi_music
             x: 210
@@ -2021,46 +1857,59 @@ lvgl:
             text: "\U000F0928"
             text_color: 0x00AA00
 
-        # ===== ALBUM ART + TRACK INFO =====
-        # Image disabled - online_image component disabled for debugging
-        # - image:
-        #     id: img_album_art
-        #     x: 10
-        #     y: 35
-        #     src: album_art
-        # Track title
-        - label:
-            id: lbl_music_title
-            x: 120
-            y: 45
-            width: 115
-            height: 25
-            text_font: roboto_18
-            text: "No track"
-            text_color: 0xFFFFFF
-            long_mode: dot
-        # Artist name
-        - label:
-            id: lbl_music_artist
-            x: 120
-            y: 70
-            width: 115
-            height: 20
-            text_font: roboto_14
-            text: ""
-            text_color: 0x888888
-            long_mode: dot
+        # ===== NOW PLAYING CARD =====
+        - obj:
+            x: 5
+            y: 28
+            width: 230
+            height: 115
+            bg_color: 0x1A1A1A
+            radius: 10
+            pad_all: 0
+            widgets:
+              # Album art (100x100, left side of card)
+              - image:
+                  id: img_album_art
+                  x: 8
+                  y: 8
+                  src: album_art
+              # Track info (right of album art)
+              - label:
+                  x: 114
+                  y: 5
+                  width: 112
+                  text_font: roboto_12
+                  text: "NOW PLAYING"
+                  text_color: 0x1DB954
+              - label:
+                  id: lbl_music_title
+                  x: 114
+                  y: 22
+                  width: 112
+                  height: 42
+                  text_font: roboto_18
+                  text: "No track"
+                  text_color: 0xFFFFFF
+                  long_mode: scroll_circular
+              - label:
+                  id: lbl_music_artist
+                  x: 114
+                  y: 70
+                  width: 112
+                  text_font: roboto_14
+                  text: ""
+                  text_color: 0x888888
+                  long_mode: dot
 
         # ===== TRANSPORT CONTROLS =====
-        # Previous button
         - button:
             id: btn_prev
-            x: 30
-            y: 140
-            width: 50
-            height: 50
-            bg_color: 0x333333
-            radius: 25
+            x: 15
+            y: 153
+            width: 55
+            height: 55
+            bg_color: 0x2A2A2A
+            radius: 27
             scrollable: false
             widgets:
               - label:
@@ -2070,15 +1919,14 @@ lvgl:
                   text_color: 0xFFFFFF
             on_click:
               - script.execute: script_music_prev
-        # Play/Pause button
         - button:
             id: btn_play_pause
-            x: 90
-            y: 135
-            width: 60
-            height: 60
+            x: 83
+            y: 147
+            width: 74
+            height: 74
             bg_color: 0x1DB954
-            radius: 30
+            radius: 37
             scrollable: false
             widgets:
               - label:
@@ -2089,15 +1937,14 @@ lvgl:
                   text_color: 0xFFFFFF
             on_click:
               - script.execute: script_music_play_pause
-        # Next button
         - button:
             id: btn_next
-            x: 160
-            y: 140
-            width: 50
-            height: 50
-            bg_color: 0x333333
-            radius: 25
+            x: 170
+            y: 153
+            width: 55
+            height: 55
+            bg_color: 0x2A2A2A
+            radius: 27
             scrollable: false
             widgets:
               - label:
@@ -2108,75 +1955,90 @@ lvgl:
             on_click:
               - script.execute: script_music_next
 
-        # ===== VOLUME BUTTONS (no slider) =====
+        # ===== VOLUME SLIDER =====
         - label:
-            x: 10
-            y: 205
+            x: 8
+            y: 234
+            text_font: mdi_20
+            text: "\U000F0581"
+            text_color: 0x666666
+        - slider:
+            id: slider_volume
+            x: 33
+            y: 232
+            width: 168
+            height: 25
+            min_value: 0
+            max_value: 100
+            value: 0
+            bg_color: 0x333333
+            indicator:
+              bg_color: 0x1DB954
+            knob:
+              bg_color: 0x1DB954
+              radius: 12
+            on_release:
+              - homeassistant.service:
+                  service: media_player.volume_set
+                  data:
+                    entity_id: media_player.${ma_player}
+                    volume_level: !lambda 'return x / 100.0f;'
+        - label:
+            x: 208
+            y: 234
             text_font: mdi_20
             text: "\U000F057E"
             text_color: 0x1DB954
-        # Volume down button
-        - button:
-            id: btn_vol_down
-            x: 40
-            y: 200
-            width: 80
-            height: 40
-            bg_color: 0x333333
-            radius: 8
-            scrollable: false
-            widgets:
-              - label:
-                  align: center
-                  text_font: mdi_20
-                  text: "\U000F0374"
-                  text_color: 0xFFFFFF
-            on_click:
-              - script.execute: script_volume_down
-        # Volume up button
-        - button:
-            id: btn_vol_up
-            x: 130
-            y: 200
-            width: 80
-            height: 40
-            bg_color: 0x333333
-            radius: 8
-            scrollable: false
-            widgets:
-              - label:
-                  align: center
-                  text_font: mdi_20
-                  text: "\U000F0415"
-                  text_color: 0xFFFFFF
-            on_click:
-              - script.execute: script_volume_up
 
         # ===== PLAYLIST QUICK-PLAY =====
         - button:
-            id: btn_play_playlist
-            x: 10
-            y: 255
-            width: 220
-            height: 45
-            bg_color: 0x1DB954
+            id: btn_morning_playlist
+            x: 5
+            y: 265
+            width: 110
+            height: 48
+            bg_color: 0xE67E22
             radius: 10
             scrollable: false
             widgets:
               - label:
-                  x: 15
-                  y: 12
+                  x: 10
+                  y: 6
                   text_font: mdi_20
-                  text: "\U000F0411"
+                  text: "\U000F0599"
                   text_color: 0xFFFFFF
               - label:
-                  x: 45
-                  y: 13
+                  x: 38
+                  y: 8
                   text_font: roboto_14
-                  text: "Play Playlist"
+                  text: "Morning"
                   text_color: 0xFFFFFF
             on_click:
-              - script.execute: script_play_selected_playlist
+              - script.execute: script_play_morning_playlist
+        - button:
+            id: btn_evening_playlist
+            x: 125
+            y: 265
+            width: 110
+            height: 48
+            bg_color: 0x5C4DB1
+            radius: 10
+            scrollable: false
+            widgets:
+              - label:
+                  x: 10
+                  y: 6
+                  text_font: mdi_20
+                  text: "\U000F0594"
+                  text_color: 0xFFFFFF
+              - label:
+                  x: 38
+                  y: 8
+                  text_font: roboto_14
+                  text: "Evening"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_play_evening_playlist
 
     # ==================== PAGE 3: TV ====================
     - id: tv_page
@@ -2229,129 +2091,186 @@ lvgl:
         # ===== TV POWER BUTTON =====
         - button:
             id: btn_tv_power
-            x: 10
-            y: 30
-            width: 220
-            height: 35
+            x: 5
+            y: 28
+            width: 230
+            height: 38
             bg_color: 0xFF5722
             radius: 8
             scrollable: false
             widgets:
               - label:
                   x: 10
-                  y: 6
+                  y: 8
                   text_font: mdi_20
                   text: "\U000F0532"
                   text_color: 0xFFFFFF
               - label:
                   x: 38
-                  y: 8
+                  y: 10
                   text_font: roboto_14
                   text: "TV Power"
                   text_color: 0xFFFFFF
               - label:
-                  x: 185
-                  y: 6
+                  x: 195
+                  y: 8
                   text_font: mdi_20
                   text: "\U000F0425"
                   text_color: 0xFFFFFF
             on_click:
               - script.execute: script_tv_power_toggle
 
-        # ===== NOW PLAYING SECTION =====
-        # TV Art image - disabled, online_image component disabled for debugging
-        # - image:
-        #     id: img_tv_art
-        #     x: 10
-        #     y: 70
-        #     src: tv_art
-        # Track info next to art
-        - label:
-            x: 100
+        # ===== NOW PLAYING CARD =====
+        - obj:
+            x: 5
             y: 70
-            text_font: roboto_12
-            text: "Now Playing:"
-            text_color: 0x888888
-        - label:
-            id: lbl_tv_title
-            x: 100
-            y: 85
-            width: 130
-            text_font: roboto_14
-            text: "Nothing playing"
-            text_color: 0xFFFFFF
-            long_mode: dot
-        - label:
-            id: lbl_tv_artist
-            x: 100
-            y: 102
-            width: 130
-            text_font: roboto_12
-            text: ""
-            text_color: 0x888888
-            long_mode: dot
-        # Transport controls under the art
+            width: 230
+            height: 40
+            bg_color: 0x1A1A1A
+            radius: 8
+            pad_all: 0
+            widgets:
+              - label:
+                  id: lbl_tv_title
+                  x: 8
+                  y: 3
+                  width: 215
+                  height: 20
+                  text_font: roboto_14
+                  text: "Nothing playing"
+                  text_color: 0xFFFFFF
+                  long_mode: scroll_circular
+              - label:
+                  id: lbl_tv_artist
+                  x: 8
+                  y: 24
+                  width: 150
+                  text_font: roboto_12
+                  text: ""
+                  text_color: 0x888888
+                  long_mode: dot
+              - label:
+                  id: lbl_tv_play_pause
+                  x: 195
+                  y: 20
+                  text_font: mdi_20
+                  text: "\U000F040A"
+                  text_color: 0xFF5722
+
+        # ===== TRANSPORT CONTROLS =====
         - button:
             id: btn_tv_prev
-            x: 10
-            y: 155
-            width: 40
-            height: 35
-            bg_color: 0x333333
-            radius: 8
+            x: 37
+            y: 115
+            width: 50
+            height: 44
+            bg_color: 0x2A2A2A
+            radius: 22
             scrollable: false
             widgets:
               - label:
                   align: center
-                  text_font: mdi_20
-                  text: "\U000F045F"
+                  text_font: mdi_36
+                  text: "\U000F04AE"
                   text_color: 0xFFFFFF
             on_click:
               - script.execute: script_tv_media_prev
         - button:
-            id: btn_tv_play_pause
-            x: 55
-            y: 155
+            id: btn_tv_play_pause_btn
+            x: 95
+            y: 111
             width: 50
-            height: 35
+            height: 52
             bg_color: 0xFF5722
-            radius: 8
+            radius: 26
             scrollable: false
             widgets:
               - label:
-                  id: lbl_tv_play_pause
                   align: center
-                  text_font: mdi_20
+                  text_font: mdi_36
                   text: "\U000F040A"
                   text_color: 0xFFFFFF
             on_click:
               - script.execute: script_tv_media_play_pause
         - button:
             id: btn_tv_next
-            x: 110
-            y: 155
-            width: 40
-            height: 35
+            x: 153
+            y: 115
+            width: 50
+            height: 44
+            bg_color: 0x2A2A2A
+            radius: 22
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_36
+                  text: "\U000F04AD"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_tv_media_next
+
+        # ===== VOLUME ROW (IR) =====
+        - button:
+            id: btn_tv_vol_down
+            x: 22
+            y: 170
+            width: 60
+            height: 30
             bg_color: 0x333333
-            radius: 8
+            radius: 6
             scrollable: false
             widgets:
               - label:
                   align: center
                   text_font: mdi_20
-                  text: "\U000F0211"
+                  text: "\U000F0374"
                   text_color: 0xFFFFFF
             on_click:
-              - script.execute: script_tv_media_next
+              - script.execute: script_tv_volume_down
+        - button:
+            id: btn_tv_mute
+            x: 90
+            y: 170
+            width: 60
+            height: 30
+            bg_color: 0x333333
+            radius: 6
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0581"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_tv_mute
+        - button:
+            id: btn_tv_vol_up
+            x: 158
+            y: 170
+            width: 60
+            height: 30
+            bg_color: 0x333333
+            radius: 6
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0415"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_tv_volume_up
 
-        # ===== APP BUTTONS GRID (smaller, 5 buttons) =====
+        # ===== APP LAUNCHER =====
         # Row 1: Jellyfin, Prime, Netflix
         - button:
             id: btn_jellyfin
-            x: 10
-            y: 200
-            width: 70
-            height: 50
+            x: 5
+            y: 207
+            width: 73
+            height: 48
             bg_color: 0x00A4DC
             radius: 10
             scrollable: false
@@ -2365,10 +2284,10 @@ lvgl:
               - script.execute: script_launch_jellyfin
         - button:
             id: btn_prime
-            x: 85
-            y: 200
-            width: 70
-            height: 50
+            x: 83
+            y: 207
+            width: 73
+            height: 48
             bg_color: 0x00A8E1
             radius: 10
             scrollable: false
@@ -2382,10 +2301,10 @@ lvgl:
               - script.execute: script_launch_prime
         - button:
             id: btn_netflix
-            x: 160
-            y: 200
-            width: 70
-            height: 50
+            x: 161
+            y: 207
+            width: 74
+            height: 48
             bg_color: 0xE50914
             radius: 10
             scrollable: false
@@ -2397,13 +2316,13 @@ lvgl:
                   text_color: 0xFFFFFF
             on_click:
               - script.execute: script_launch_netflix
-        # Row 2: HBO, Disney+
+        # Row 2: HBO, Disney+ (wider, fill the row)
         - button:
             id: btn_hbo
-            x: 10
-            y: 258
-            width: 70
-            height: 50
+            x: 5
+            y: 260
+            width: 113
+            height: 48
             bg_color: 0x5822B4
             radius: 10
             scrollable: false
@@ -2417,10 +2336,10 @@ lvgl:
               - script.execute: script_launch_hbo
         - button:
             id: btn_disney
-            x: 85
-            y: 258
-            width: 70
-            height: 50
+            x: 123
+            y: 260
+            width: 112
+            height: 48
             bg_color: 0x113CCF
             radius: 10
             scrollable: false
