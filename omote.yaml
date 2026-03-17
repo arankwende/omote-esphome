@@ -1,0 +1,2376 @@
+substitutions:
+  name: omote
+  friendly_name: Omote Remote
+  ha_api_key: "YourHAAPIKey"
+  ota_key: "YourOTAKey"
+  # Music Assistant player entity (without the media_player. prefix)
+  ma_player: "room_speaker"
+  # Home Assistant Entity IDs (update these to match your setup)
+  climate_entity: climate.room_ac
+  light_entity: light.room_light
+  cover_entity_left: cover.room_blinds_left
+  cover_entity_right: cover.room_blinds_right
+  temp_sensor_entity: sensor.room_temperature
+  tv_media_player: media_player.room_tv
+  # Automation scripts for physical buttons (customize these)
+  # Row 1: Button 1 and Button 4
+  automation_row1_btn1: script.your_automation_1
+  automation_row1_btn4: script.your_automation_2
+  # Row 2: Button 1 and Button 4
+  automation_row2_btn1: script.your_automation_3
+  automation_row2_btn4: script.your_automation_4
+  # Row 4: Button 1 and Button 4
+  automation_row4_btn1: script.your_automation_5
+  automation_row4_btn4: script.your_automation_6
+  # Scene buttons
+  automation_scene_1: script.scene_1
+  automation_scene_2: script.scene_2
+  automation_scene_3: script.scene_3
+  automation_scene_4: script.scene_4
+  # Record button
+  automation_record: script.record_action
+  # TV remote entity for DPAD and channel buttons
+  tv_remote_entity: remote.room_tv
+  # Weather entity for status bar
+  weather_entity: weather.home
+  # Home Assistant base URL (needed to resolve relative entity_picture URLs)
+  ha_url: "http://homeassistant.local:8123"
+  # Music Assistant playlist URIs for quick-play buttons (find these in MA library)
+  ma_morning_playlist: "library://playlist/1"
+  ma_evening_playlist: "library://playlist/2"
+  # TV IR codes (first put the proper protocol action in remote_type, then fill the rest)
+  # Format: depending on the protocol, it could be just "data:" as with pronto or address, command (hex values), you need to check which case and comment data and uncomment the others if its address command
+  remote_type: transmit_pronto
+#  tv_ir_address: "0x00"
+  tv_ir_cmd_up: "0000 006D 0013 0000 006A 001F 0014 0020 0014 000F 0014 000F 0036 0032 0012 0010 0013 000F 0013 000F 0013 0010 0013 000F 0013 000F 0012 0010 0013 0010 0024 0020 0023 0010 0012 0022 0012 0011 0011 0011 0011 0180 "
+  tv_ir_cmd_down: "0000 006D 0013 0000 006A 001F 0014 001F 0014 000F 0013 000F 0014 0020 0025 000F 0013 000F 0013 0010 0013 000F 0012 0010 0012 0010 0013 0010 0013 000F 0013 000F 0023 0021 0024 0010 0012 0021 0012 0010 0023 0180 "
+  tv_ir_cmd_left: "0000 006D 0013 0000 0068 0022 0011 0022 0011 0011 0012 0011 0011 0022 0022 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0022 0022 0023 0011 0011 0022 0022 0022 0011 0180 "
+  tv_ir_cmd_right: "0000 006D 0013 0000 0069 0021 0011 0021 0013 0010 0012 0010 0034 0033 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0011 0011 0022 0022 0022 0012 0011 0011 0011 0022 0011 0011 0011 0180 "
+  tv_ir_cmd_select: "0000 006D 0013 0000 0069 0021 0011 0021 0013 0010 0012 0010 0034 0033 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0011 0011 0022 0022 0022 0012 0011 0011 0011 0022 0011 0011 0011 0180 "
+  tv_ir_cmd_channel_up: "0000 006D 0015 0000 0068 0021 0012 0022 0011 0011 0011 0011 0012 0022 0022 0011 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0022 0022 0012 0011 0011 0011 0011 0011 0011 0012 0011 0180 "
+  tv_ir_cmd_channel_down: "0000 006D 0014 0000 0069 0022 0011 0022 0011 0011 0011 0012 0033 0033 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0022 0011 0011 0022 0011 0011 0012 0180 "
+  tv_ir_cmd_volume_up: "0000 006D 0015 0000 0069 0021 0013 0020 0014 000F 0014 000F 0014 0020 0025 000F 0013 000F 0013 0010 0013 000F 0012 0010 0011 0011 0013 0010 0013 000F 0013 000F 0012 0011 0012 0010 0023 0021 0012 0010 0012 0011 0012 0011 0011 0180"
+  tv_ir_cmd_volume_down: "0000 006D 0013 0000 0069 0020 0014 0020 0014 000F 0014 000F 0036 0031 0013 0010 0012 0010 0013 000F 0013 0010 0013 000F 0013 000F 0012 0010 0013 0010 0012 0010 0012 0010 0023 0022 0012 0011 0011 0011 0022 0180 "
+  tv_ir_cmd_mute: "0000 006D 0014 0000 0067 0022 0013 0020 0014 000F 0013 000F 0013 0020 0024 0010 0012 0010 0012 0010 0013 000F 0013 0010 0012 0010 0012 0010 0012 0011 0012 0011 0011 0011 0011 0011 0011 0011 0023 0011 0011 0022 0022 0180 "
+  tv_ir_cmd_power_toggle: "0000 006D 0014 0000 0069 0022 0011 0022 0011 0011 0011 0012 0033 0033 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0022 0011 0011 0022 0011 0011 0012 0180 "
+  tv_ir_cmd_exit: "0x0A"
+  tv_ir_cmd_rewind: "0x0E"
+  tv_ir_cmd_fastforward: "0x0F"
+  #IP Configuration for static IP - to enable it, first un comment the section in Wifi
+  static_ip: 192.168.1.101
+  gateway: 192.168.1.1
+  subnet: 255.255.255.0
+  dns1: 192.168.1.1
+  dns2: 8.8.8.8
+
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  on_boot:
+    # Required to set lcd_rd off before display will work
+    - priority: 600
+      then:
+        - output.turn_off: lcd_rd
+    # Turn on backlight after boot (including wake from deep sleep)
+    - priority: -100
+      then:
+        - light.turn_on: back_light
+        - globals.set:
+            id: device_sleeping
+            value: 'false'
+
+# External components
+# NOTE: Comment out components that cause boot loops if hardware not detected
+external_components:
+  # TCA8418 keypad matrix -github component
+  - source: github://arankwende/tca8418-keypad-esphome@main
+  - source: github://arankwende/lis3dh-esphome@main
+
+esp32:
+  board: esp32-s3-devkitc-1
+  cpu_frequency: 240Mhz
+  framework:
+    type: esp-idf
+# Deep sleep configuration
+# Wake source: GPIO02 (LIS3DH motion interrupt, active HIGH)
+# Note: GPIO08 (TCA8418 INT) is active-LOW (idle HIGH), incompatible with ANY_HIGH mode
+deep_sleep:
+  id: deep_sleep_ctrl
+  wakeup_pin:
+    number: GPIO03
+#    allow_other_uses: true
+    inverted: true  # Wake on button press (LOW)
+    ignore_strapping_warning: true
+  wakeup_pin_mode: KEEP_AWAKE
+# PSRAM configuration - CRITICAL for LVGL display
+# The Omote uses ESP32-S3 with PSRAM
+psram:
+  mode: octal
+  speed: 80MHz
+logger:
+  level: DEBUG
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: ${ha_api_key}
+  on_client_connected:
+    - logger.log: "Home Assistant connected"
+    - lvgl.widget.update:
+        id: lbl_wifi_room
+        text_color: 0x00FF00
+    - lvgl.widget.update:
+        id: lbl_wifi_music
+        text_color: 0x00FF00
+    - lvgl.widget.update:
+        id: lbl_wifi_tv
+        text_color: 0x00FF00
+  on_client_disconnected:
+    - logger.log: "Home Assistant disconnected"
+    - lvgl.widget.update:
+        id: lbl_wifi_room
+        text_color: 0xFF0000
+    - lvgl.widget.update:
+        id: lbl_wifi_music
+        text_color: 0xFF0000
+    - lvgl.widget.update:
+        id: lbl_wifi_tv
+        text_color: 0xFF0000
+ota:
+  - platform: esphome
+    password: ${ota_key}
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  on_connect:
+    - lvgl.widget.update:
+        id: lbl_wifi_room
+        text_color: 0xFFFFFF
+    - lvgl.widget.update:
+        id: lbl_wifi_music
+        text_color: 0xFFFFFF
+    - lvgl.widget.update:
+        id: lbl_wifi_tv
+        text_color: 0xFFFFFF
+  on_disconnect:
+    - lvgl.widget.update:
+        id: lbl_wifi_room
+        text_color: 0xFF0000
+    - lvgl.widget.update:
+        id: lbl_wifi_music
+        text_color: 0xFF0000
+    - lvgl.widget.update:
+        id: lbl_wifi_tv
+        text_color: 0xFF0000
+# Manual IP config
+  manual_ip:
+      static_ip: ${static_ip}
+      gateway: ${gateway}
+      subnet: ${subnet}
+      dns1: ${dns1}
+      dns2: ${dns2}
+# web_server:  # Disabled temporarily to reduce memory usage
+#   port: 80
+
+http_request:
+  useragent: esphome/omote
+  timeout: 10s
+
+online_image:
+    - id: album_art
+      url: "https://via.placeholder.com/100"
+      format: JPEG
+      type: RGB565
+      resize: 100x100
+      on_download_finished:
+        - logger.log: "Album art downloaded OK"
+        - lvgl.image.update:
+            id: img_album_art
+            src: album_art
+        - lvgl.widget.redraw:
+      on_error:
+        - logger.log:
+            level: WARN
+            format: "Album art download FAILED"
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+    on_time:
+      - seconds: 0
+        then:
+          - lvgl.label.update:
+              id: lbl_time_room
+              text: !lambda |-
+                auto time = id(homeassistant_time).now();
+                return time.strftime("%H:%M");
+          - lvgl.label.update:
+              id: lbl_time_music
+              text: !lambda |-
+                auto time = id(homeassistant_time).now();
+                return time.strftime("%H:%M");
+          - lvgl.label.update:
+              id: lbl_time_tv
+              text: !lambda |-
+                auto time = id(homeassistant_time).now();
+                return time.strftime("%H:%M");
+
+
+#set up battery sensor (MAX17043/MAX17048 fuel gauge at I2C 0x36)
+sensor:
+  # LIS3DH accelerometer (I2C 0x19) - acceleration + motion interrupt for deep sleep wake
+  - platform: lis3dh_motion
+    id: accel
+    address: 0x19
+    threshold: 16  # ~256mg motion wake threshold (16mg/LSB at +/-2g)
+    update_interval: 60s
+    accel_x:
+      name: "Accel X"
+      id: accel_x
+    accel_y:
+      name: "Accel Y"
+      id: accel_y
+    accel_z:
+      name: "Accel Z"
+      id: accel_z
+    temperature:
+      name: "LIS3DH Temperature"
+      id: accel_temp
+  - platform: max17043
+    battery_voltage:
+      id: battery_voltage
+      name: "Battery Voltage"
+    battery_level:
+      id: battery_level
+      name: "Battery Level"
+    update_interval: 60s
+  # Home Assistant sensors
+  - platform: homeassistant
+    id: room_temperature
+    entity_id: ${temp_sensor_entity}
+    on_value:
+      - lvgl.label.update:
+          id: lbl_temperature
+          text:
+            format: "%.1f°C"
+            args: ['x']
+  - platform: homeassistant
+    id: climate_target_temp
+    entity_id: ${climate_entity}
+    attribute: temperature
+    on_value:
+      - lvgl.label.update:
+          id: lbl_target_temp
+          text:
+            format: "%.0f°C"
+            args: ['x']
+  - platform: homeassistant
+    id: blinds_position_left
+    entity_id: ${cover_entity_left}
+    attribute: current_position
+    on_value:
+      - lvgl.label.update:
+          id: lbl_blinds_left_pct
+          text:
+            format: "%d%%"
+            args: ['(int)x']
+  - platform: homeassistant
+    id: blinds_position_right
+    entity_id: ${cover_entity_right}
+    attribute: current_position
+    on_value:
+      - lvgl.label.update:
+          id: lbl_blinds_right_pct
+          text:
+            format: "%d%%"
+            args: ['(int)x']
+  # Outdoor temperature from weather entity
+  - platform: homeassistant
+    id: outdoor_temperature
+    entity_id: ${weather_entity}
+    attribute: temperature
+    on_value:
+      - lvgl.label.update:
+          id: lbl_outdoor_temp_room
+          text:
+            format: "%.0f°"
+            args: ['x']
+      - lvgl.label.update:
+          id: lbl_outdoor_temp_music
+          text:
+            format: "%.0f°"
+            args: ['x']
+      - lvgl.label.update:
+          id: lbl_outdoor_temp_tv
+          text:
+            format: "%.0f°"
+            args: ['x']
+  - platform: homeassistant
+    id: music_volume
+    entity_id: media_player.${ma_player}
+    attribute: volume_level
+    on_value:
+      - lvgl.slider.update:
+          id: slider_volume
+          value: !lambda 'return (int)(x * 100);'
+
+button:
+  - platform: restart
+    name: "Restart"
+  - platform: template
+    name: "TV IR"
+    on_press:
+      - script.execute: script_tv_power_toggle # This executes the script defined 
+
+text_sensor:
+  # Weather condition from weather entity
+  - platform: homeassistant
+    id: weather_condition
+    entity_id: ${weather_entity}
+    on_value:
+      - lambda: |-
+          // Map weather conditions to MDI icons
+          std::string icon = "\U000F0599"; // default sunny
+          if (x == "cloudy") icon = "\U000F0595";
+          else if (x == "partlycloudy") icon = "\U000F067E";
+          else if (x == "rainy") icon = "\U000F0598";
+          else if (x == "pouring") icon = "\U000F0597";
+          else if (x == "snowy") icon = "\U000F059D";
+          else if (x == "fog") icon = "\U000F0591";
+          else if (x == "windy") icon = "\U000F059E";
+          else if (x == "lightning" || x == "lightning-rainy") icon = "\U000F0593";
+          else if (x == "sunny" || x == "clear-night") icon = "\U000F0599";
+
+          // Update all weather icons using LVGL C API
+          lv_label_set_text(id(lbl_weather_room), icon.c_str());
+          lv_label_set_text(id(lbl_weather_music), icon.c_str());
+          lv_label_set_text(id(lbl_weather_tv), icon.c_str());
+  # Climate state
+  - platform: homeassistant
+    id: climate_state
+    entity_id: ${climate_entity}
+    on_value:
+      - lvgl.label.update:
+          id: lbl_climate_mode
+          text: !lambda 'return x;'
+  # Light state
+  - platform: homeassistant
+    id: light_state
+    entity_id: ${light_entity}
+    on_value:
+      - if:
+          condition:
+            lambda: 'return x == "on";'
+          then:
+            - lvgl.widget.update:
+                id: btn_light
+                bg_color: 0xFFCC00
+          else:
+            - lvgl.widget.update:
+                id: btn_light
+                bg_color: 0x333333
+  # Music Assistant player info
+  - platform: homeassistant
+    id: music_title
+    entity_id: media_player.${ma_player}
+    attribute: media_title
+    on_value:
+      - lvgl.label.update:
+          id: lbl_music_title
+          text: !lambda 'return x;'
+  - platform: homeassistant
+    id: music_artist
+    entity_id: media_player.${ma_player}
+    attribute: media_artist
+    on_value:
+      - lvgl.label.update:
+          id: lbl_music_artist
+          text: !lambda 'return x;'
+  # TV media player info
+  - platform: homeassistant
+    id: tv_media_title
+    entity_id: ${tv_media_player}
+    attribute: media_title
+    on_value:
+      - lvgl.label.update:
+          id: lbl_tv_title
+          text: !lambda 'return x;'
+  - platform: homeassistant
+    id: tv_media_artist
+    entity_id: ${tv_media_player}
+    attribute: media_artist
+    on_value:
+      - lvgl.label.update:
+          id: lbl_tv_artist
+          text: !lambda 'return x;'
+  - platform: homeassistant
+    id: music_state
+    entity_id: media_player.${ma_player}
+    on_value:
+      - if:
+          condition:
+            lambda: 'return x == "playing";'
+          then:
+            - lvgl.label.update:
+                id: lbl_play_pause
+                text: "\U000F03E4"
+            - globals.set:
+                id: music_playing
+                value: 'true'
+          else:
+            - lvgl.label.update:
+                id: lbl_play_pause
+                text: "\U000F040A"
+            - globals.set:
+                id: music_playing
+                value: 'false'
+  - platform: homeassistant
+    id: music_album_art
+    entity_id: media_player.${ma_player}
+    attribute: entity_picture
+    on_value:
+      - if:
+          condition:
+            lambda: 'return !x.empty();'
+          then:
+            - logger.log:
+                level: DEBUG
+                format: "Album art URL: %s"
+                args: ['x.c_str()']
+            - online_image.set_url:
+                id: album_art
+                # Handle both relative (/api/...) and absolute (http://...) URLs
+                url: !lambda |-
+                  if (x.rfind("http", 0) == 0) return x;
+                  return std::string("${ha_url}") + x;
+  # TV media player art - no display widget on TV page, sensor omitted
+  # TV media player state for play/pause icon
+  - platform: homeassistant
+    id: tv_media_state
+    entity_id: ${tv_media_player}
+    on_value:
+      - if:
+          condition:
+            lambda: 'return x == "playing";'
+          then:
+            - lvgl.label.update:
+                id: lbl_tv_play_pause
+                text: "\U000F03E4"
+          else:
+            - lvgl.label.update:
+                id: lbl_tv_play_pause
+                text: "\U000F040A"
+  # Sun state for nighttime screen off
+  - platform: homeassistant
+    id: sun_state
+    entity_id: sun.sun
+    on_value:
+      - if:
+          condition:
+            lambda: 'return x == "below_horizon";'
+          then:
+            - globals.set:
+                id: is_nighttime
+                value: 'true'
+#            - light.turn_off: back_light
+          else:
+            - globals.set:
+                id: is_nighttime
+                value: 'false'
+#            - light.turn_on: back_light
+
+binary_sensor:
+  # LIS3DH motion interrupt on INT1 (GPIO02)
+  # Goes HIGH when motion detected, cleared by reading INT1_SRC
+  - platform: gpio
+    id: motion_detected
+    name: "Motion Detected"
+    pin:
+      number: GPIO02
+      mode: INPUT
+    filters:
+      - delayed_off: 100ms
+    on_press:
+      - logger.log: "Motion detected - waking screen"
+      - light.turn_on: back_light
+      - light.turn_on:
+          id: keypad_backlight
+          brightness: 100%
+      - delay: 20s
+      - light.turn_off: keypad_backlight
+      # Clear the latched interrupt so it can trigger again
+      - lambda: 'id(accel).clear_interrupt();'
+
+  # ==================== TCA8418 MATRIX KEYPAD BUTTONS ====================
+  #
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_1
+    row: 0
+    col: 4
+    name: "Botón 1"
+    on_press:
+      - logger.log: "Button 1 - launching automation"
+      - homeassistant.service:
+          service: script.turn_on
+          data:
+            entity_id: ${automation_row1_btn1}
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_2
+    row: 0
+    col: 3
+    name: "Botón 2"
+    on_press:
+      - logger.log: "Button 2 - navigate left"
+#      - script.execute: script_reset_backlight_timeout
+      - script.execute: script_prev_page
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_3
+    row: 0
+    col: 1
+    name: "Botón 3"
+    on_press:
+      - logger.log: "Button 3 - navigate right"
+ #     - script.execute: script_reset_backlight_timeout
+      - script.execute: script_next_page
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_4
+    row: 1
+    col: 0
+    name: "Botón 4"
+    on_press:
+      - logger.log: "Button 4 - launching automation"
+      - homeassistant.service:
+          service: script.turn_on
+          data:
+            entity_id: ${automation_row1_btn4}
+
+  # Media Buttons around the DPad - Page-aware behavior
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_media_1
+    row: 0
+    col: 2
+    name: "Botón Media 1"
+    on_press:
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 2;'  # TV page
+          then:
+            - script.execute: script_tv_exit
+          else:
+            - logger.log: "Media Button 1 Pressed"
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_media_2
+    row: 3
+    col: 0
+    name: "Botón Media 2"
+    on_press:
+      - logger.log: "Media Button 2 pressed"
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_media_3
+    row: 1
+    col: 2
+    name: "Botón Media 3"
+    on_press:
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 2;'  # TV page
+          then:
+            - script.execute: script_tv_media_prev
+          else:
+            - logger.log: "Media Button 3 pressed"
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_media_4
+    row: 4
+    col: 0
+    name: "Botón Media 4"
+    on_press:
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 2;'  # TV page
+          then:
+            - script.execute: script_tv_media_next
+          else:
+            - logger.log: "Media Button 4 pressed"
+
+  # Dpad buttons - TV navigation
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_dpad_up
+    row: 1
+    col: 3
+    name: "DPAD Up"
+    on_press:
+      - script.execute: script_tv_up
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_dpad_down
+    row: 3
+    col: 4
+    name: "DPAD Down"
+    on_press:
+      - script.execute: script_tv_down
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_dpad_left
+    row: 1
+    col: 4
+    name: "DPAD Left"
+    on_press:
+      - script.execute: script_tv_left
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_dpad_right
+    row: 3
+    col: 1
+    name: "DPAD Right"
+    on_press:
+      - script.execute: script_tv_right
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_dpad_center
+    row: 3
+    col: 3
+    name: "DPAD Center"
+    on_press:
+      - script.execute: script_tv_select
+
+  # Volume Buttons - Page-aware (Room/Music = media player, TV = TV IR)
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_volume_up
+    row: 3
+    col: 2
+    name: "Volume Up"
+    on_press:
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 2;'  # TV page
+          then:
+            - script.execute: script_tv_volume_up
+          else:
+            - script.execute: script_volume_up
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_volume_down
+    row: 4
+    col: 2
+    name: "Volume Down"
+    on_press:
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 2;'  # TV page
+          then:
+            - script.execute: script_tv_volume_down
+          else:
+            - script.execute: script_volume_down
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_volume_mute
+    row: 4
+    col: 3
+    name: "Mute"
+    on_press:
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 2;'  # TV page
+          then:
+            - script.execute: script_tv_mute
+          else:
+            - homeassistant.service:
+                service: media_player.volume_mute
+                data:
+                  entity_id: media_player.${ma_player}
+                  is_volume_muted: "True"
+
+  # Channel/Record Buttons - TV remote
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_channel_record
+    row: 4
+    col: 4
+    name: "Record"
+    on_press:
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 2;'  # TV page
+          then:
+            - script.execute: script_tv_media_play_pause
+          else:
+            - logger.log: "Record - launching automation"
+            - homeassistant.service:
+                service: script.turn_on
+                data:
+                  entity_id: ${automation_record}
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_channel_up
+    row: 4
+    col: 1
+    name: "Channel Up"
+    on_press:
+      - script.execute: script_tv_channel_up
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_channel_down
+    row: 2
+    col: 1
+    name: "Channel Down"
+    on_press:
+      - script.execute: script_tv_channel_down
+
+  # Scene Buttons - Launch automations
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_scene_1
+    row: 2
+    col: 2
+    name: "Scene Button 1"
+    on_press:
+      - logger.log: "Scene 1 - launching automation"
+      - homeassistant.service:
+          service: script.turn_on
+          data:
+            entity_id: ${automation_scene_1}
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_scene_2
+    row: 2
+    col: 4
+    name: "Scene Button 2"
+    on_press:
+      - logger.log: "Scene 2 - launching automation"
+      - homeassistant.service:
+          service: script.turn_on
+          data:
+            entity_id: ${automation_scene_2}
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_scene_3
+    row: 2
+    col: 3
+    name: "Scene Button 3"
+    on_press:
+      - logger.log: "Scene 3 - launching automation"
+      - homeassistant.service:
+          service: script.turn_on
+          data:
+            entity_id: ${automation_scene_3}
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_scene_4
+    row: 2
+    col: 0
+    name: "Scene Button 4"
+    on_press:
+      - logger.log: "Scene 4 - launching automation"
+      - homeassistant.service:
+          service: script.turn_on
+          data:
+            entity_id: ${automation_scene_4}
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_power_keypad
+    key: 102
+    name: "Power Button"
+    on_press:
+      - logger.log: "Power button pressed - entering deep sleep"
+      - script.execute: script_enter_deep_sleep
+
+
+
+globals:
+  - id: music_playing
+    type: bool
+    initial_value: "false"
+  - id: current_page
+    type: int
+    initial_value: "0"
+  - id: touch_x_start
+    type: int
+    initial_value: "0"
+  - id: touch_y_start
+    type: int
+    initial_value: "0"
+  - id: touch_x_end
+    type: int
+    initial_value: "0"
+  - id: touch_y_end
+    type: int
+    initial_value: "0"
+  # Device sleep state tracking
+  - id: device_sleeping
+    type: bool
+    initial_value: "false"
+  # Nighttime mode tracking (sundown to sunrise)
+  - id: is_nighttime
+    type: bool
+    initial_value: "false"
+  # Last activity timestamp for backlight timeout
+  - id: last_activity_time
+    type: uint32_t
+    initial_value: "0"
+
+script:
+  # Reset backlight timeout - call this on any user activity
+  - id: script_reset_backlight_timeout
+    then:
+      - light.turn_on: back_light
+      - globals.set:
+          id: last_activity_time
+          value: !lambda 'return millis();'
+
+
+  # Deep sleep script
+  - id: script_enter_deep_sleep
+    then:
+      - logger.log:
+          level: WARN
+          format: ">>> DEEP SLEEP SCRIPT STARTED <<<"
+      - globals.set:
+          id: device_sleeping
+          value: 'true'
+      - light.turn_off: back_light
+      - delay: 200ms
+#      - logger.log:
+#          level: WARN
+#          format: ">>> DISCONNECTING WIFI <<<"
+#      - wifi.disable:
+#      - delay: 500ms
+      - logger.log:
+          level: WARN
+          format: ">>> ENTERING DEEP SLEEP NOW <<<"
+      - deep_sleep.enter: deep_sleep_ctrl
+
+
+  # Wake device script
+  - id: script_wake_device
+    then:
+      - logger.log: "Waking device..."
+      - globals.set:
+          id: device_sleeping
+          value: 'false'
+      - light.turn_on: back_light
+      - lvgl.resume:
+      - lvgl.widget.redraw:
+  - id: script_volume_up
+    then:
+      - homeassistant.service:
+          service: media_player.volume_up
+          data:
+            entity_id: media_player.${ma_player}
+
+  - id: script_volume_down
+    then:
+      - homeassistant.service:
+          service: media_player.volume_down
+          data:
+            entity_id: media_player.${ma_player}
+
+  # Page navigation scripts (3 pages: room, music, tv)
+  - id: script_next_page
+    then:
+      - globals.set:
+          id: current_page
+          value: !lambda 'return (id(current_page) + 1) % 3;'
+      - lvgl.page.next:
+          animation: MOVE_LEFT
+          time: 300ms
+
+  - id: script_prev_page
+    then:
+      - globals.set:
+          id: current_page
+          value: !lambda 'return (id(current_page) + 2) % 3;'
+      - lvgl.page.previous:
+          animation: MOVE_RIGHT
+          time: 300ms
+
+  # Music control scripts (via Home Assistant media_player services)
+  - id: script_music_play_pause
+    then:
+      - homeassistant.service:
+          service: media_player.media_play_pause
+          data:
+            entity_id: media_player.${ma_player}
+
+  - id: script_music_next
+    then:
+      - homeassistant.service:
+          service: media_player.media_next_track
+          data:
+            entity_id: media_player.${ma_player}
+
+  - id: script_music_prev
+    then:
+      - homeassistant.service:
+          service: media_player.media_previous_track
+          data:
+            entity_id: media_player.${ma_player}
+
+  # TV control scripts - DPAD navigation
+  - id: script_tv_up
+    then:
+      - logger.log: "TV: Up"
+      - remote_transmitter.${remote_type}:
+          data: ${tv_ir_cmd_up}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_up}
+
+  - id: script_tv_down
+    then:
+      - logger.log: "TV: Down"
+      - remote_transmitter.${remote_type}:
+          data : ${tv_ir_cmd_down}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_down}
+
+  - id: script_tv_left
+    then:
+      - logger.log: "TV: Left"
+      - remote_transmitter.${remote_type}:
+          data : ${tv_ir_cmd_left}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_left}
+  - id: script_tv_right
+    then:
+      - logger.log: "TV: Right"
+      - remote_transmitter.${remote_type}:
+          data : ${tv_ir_cmd_right}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_right}
+
+  - id: script_tv_select
+    then:
+      - logger.log: "TV: Select"
+      - remote_transmitter.${remote_type}:
+          data : ${tv_ir_cmd_select}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_select}
+
+  # TV control scripts - Channel
+  - id: script_tv_channel_up
+    then:
+      - logger.log: "TV: Channel Up"
+      - remote_transmitter.${remote_type}:
+          data : ${tv_ir_cmd_channel_up}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_channel_up}
+
+  - id: script_tv_channel_down
+    then:
+      - logger.log: "TV: Channel Down"
+      - remote_transmitter.${remote_type}:
+          data : ${tv_ir_cmd_channel_down}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_channel_down}
+
+  # TV control scripts - Volume
+  - id: script_tv_volume_up
+    then:
+      - logger.log: "TV: Volume Up"
+      - remote_transmitter.${remote_type}:
+          data: ${tv_ir_cmd_volume_up}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_volume_up}
+  - id: script_tv_volume_down
+    then:
+      - logger.log: "TV: Volume Down"
+      - remote_transmitter.${remote_type}:
+          data : ${tv_ir_cmd_volume_down}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_volume_down}
+
+  - id: script_tv_mute
+    then:
+      - logger.log: "TV: Mute"
+      - remote_transmitter.${remote_type}:
+          data : ${tv_ir_cmd_mute}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_mute}
+
+  - id: script_tv_rewind
+    then:
+      - logger.log: "TV: Rewind"
+      - remote_transmitter.${remote_type}:
+          data: ${tv_ir_cmd_rewind}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_rewind}
+
+  - id: script_tv_fastforward
+    then:
+      - logger.log: "TV: Fast Forward"
+      - remote_transmitter.${remote_type}:
+          data: ${tv_ir_cmd_fastforward}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_fastforward}
+
+  - id: script_tv_exit
+    then:
+      - logger.log: "TV: Exit"
+      - remote_transmitter.${remote_type}:
+          data: ${tv_ir_cmd_exit}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_exit}
+
+  - id: script_tv_power_toggle
+    then:
+      - logger.log: "TV: Power Toggle"
+#      - remote_transmitter.${remote_type}:
+#          data: ${tv_ir_cmd_power_toggle}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_power_toggle}
+      - remote_transmitter.transmit_raw:
+          transmitter_id: IR_TX
+          carrier_frequency: 38kHz
+          code: [2703, -916, 442, -876, 463, -436, 465, -458, 436, -876, 913, -438, 462, -435, 458, -464, 437, -459, 435, -436, 461, -464, 437, -434, 466, -456, 440, -457, 435, -461, 436, -462, 433, -437, 909, -440, 459, -910, 435, -464, 436]
+
+  # TV media player control scripts
+  - id: script_tv_media_play_pause
+    then:
+      - logger.log: "TV Media: Play/Pause"
+      - homeassistant.service:
+          service: media_player.media_play_pause
+          data:
+            entity_id: ${tv_media_player}
+
+  - id: script_tv_media_next
+    then:
+      - logger.log: "TV Media: Next"
+      - homeassistant.service:
+          service: media_player.media_next_track
+          data:
+            entity_id: ${tv_media_player}
+
+  - id: script_tv_media_prev
+    then:
+      - logger.log: "TV Media: Previous"
+      - homeassistant.service:
+          service: media_player.media_previous_track
+          data:
+            entity_id: ${tv_media_player}
+
+  - id: script_launch_jellyfin
+    then:
+      - logger.log: "Launching Jellyfin"
+      - homeassistant.service:
+          service: media_player.select_source
+          data:
+            entity_id: ${tv_media_player}
+            source: "Jellyfin"
+
+  - id: script_launch_prime
+    then:
+      - logger.log: "Launching Prime Video"
+      - homeassistant.service:
+          service: media_player.select_source
+          data:
+            entity_id: ${tv_media_player}
+            source: "Prime Video"
+
+  - id: script_launch_netflix
+    then:
+      - logger.log: "Launching Netflix"
+      - homeassistant.service:
+          service: media_player.select_source
+          data:
+            entity_id: ${tv_media_player}
+            source: "Netflix"
+
+  - id: script_launch_hbo
+    then:
+      - logger.log: "Launching HBO Max"
+      - homeassistant.service:
+          service: media_player.select_source
+          data:
+            entity_id: ${tv_media_player}
+            source: "HBO Max"
+
+  - id: script_launch_disney
+    then:
+      - logger.log: "Launching Disney+"
+      - homeassistant.service:
+          service: media_player.select_source
+          data:
+            entity_id: ${tv_media_player}
+            source: "Disney+"
+
+  # Playlist quick-play scripts
+  - id: script_play_morning_playlist
+    then:
+      - homeassistant.service:
+          service: media_player.play_media
+          data:
+            entity_id: media_player.${ma_player}
+            media_content_id: "${ma_morning_playlist}"
+            media_content_type: "music"
+
+  - id: script_play_evening_playlist
+    then:
+      - homeassistant.service:
+          service: media_player.play_media
+          data:
+            entity_id: media_player.${ma_player}
+            media_content_id: "${ma_evening_playlist}"
+            media_content_type: "music"
+
+
+i2c:
+  id: i2c_bus
+  sda: GPIO20
+  scl: GPIO19
+  frequency: 100kHz  
+  sda_pullup_enabled: true  
+  scl_pullup_enabled: true 
+  scan: true
+  timeout: 100ms  
+
+tca8418_keypad:
+  id: keypad
+  address: 0x34
+  rows: 5
+  cols: 5
+  interrupt_pin:
+    number: 8
+
+output:
+  # LCD Backlight GPIO
+  - platform: ledc
+    id: gpio_09
+    pin:
+      number: GPIO09
+      inverted: true
+  # Keypad Backlight GPIO
+  - platform: ledc
+    id: gpio_46
+    pin:
+      number: GPIO46
+      inverted: False
+      ignore_strapping_warning: true
+  - platform: gpio
+    # lcd_rd pin needs to be set HIGH before LCD will work.
+    # Set HIGH (turn off) with boot priority in esphome section.
+    id: lcd_rd
+    pin:
+      number: GPIO42
+      inverted: True
+
+light:
+  - platform: monochromatic
+    id: back_light
+    output: gpio_09
+    restore_mode: RESTORE_DEFAULT_ON
+    name: "LCD Backlight"
+  - platform: monochromatic
+    id: keypad_backlight
+    output: gpio_46
+    restore_mode: RESTORE_DEFAULT_OFF
+    name: "Keypad Backlight"
+
+
+touchscreen:
+  - platform: ft63x6
+    id: my_touch
+    display: LCD
+    address: 0x38
+    calibration:
+      x_min: 0
+      x_max: 237
+      y_min: 0
+      y_max: 319
+    transform:
+      mirror_x: true
+      mirror_y: true
+    on_release:
+      then:
+        - if:
+            condition: lvgl.is_paused
+            then:
+              - lvgl.resume:
+              - lvgl.widget.redraw:
+        - script.execute: script_reset_backlight_timeout
+
+spi:
+  - id: quad_spi_bus
+    type: octal
+    clk_pin:
+      number: GPIO41
+    data_pins:
+      - GPIO48
+      - GPIO47
+      - GPIO21
+      - GPIO14
+      - GPIO13
+      - GPIO12
+      - GPIO11
+      - GPIO10
+
+display:
+  - platform: mipi_spi
+    id: LCD
+    model: ILI9341
+    bus_mode: octal
+    dc_pin: GPIO40
+    cs_pin: GPIO39
+    enable_pin:
+      number: GPIO38
+      inverted: true
+    auto_clear_enabled: false
+    update_interval: never
+    data_rate: 40MHz
+
+font:
+  - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
+    id: mdi_20
+    size: 20
+    bpp: 4
+    glyphs:
+      - "\U000F092F"  # mdi:wifi-outline
+      - "\U000F0928"  # mdi:wifi (filled)
+      - "\U000F0238"  # mdi:thermometer
+      - "\U000F0335"  # mdi:lightbulb
+      - "\U000F0336"  # mdi:lightbulb-outline
+      - "\U000F0054"  # mdi:air-conditioner
+      - "\U000F0F55"  # mdi:snowflake (cool)
+      - "\U000F0210"  # mdi:fan
+      - "\U000F0E4B"  # mdi:fire (heat)
+      - "\U000F0425"  # mdi:power
+      - "\U000F0AE4"  # mdi:blinds
+      - "\U000F040A"  # mdi:play
+      - "\U000F03E4"  # mdi:pause
+      - "\U000F04AD"  # mdi:skip-next
+      - "\U000F04AE"  # mdi:skip-previous
+      - "\U000F057E"  # mdi:volume-high
+      - "\U000F0580"  # mdi:volume-medium
+      - "\U000F0581"  # mdi:volume-off
+      - "\U000F0532"  # mdi:television
+      - "\U000F0415"  # mdi:plus
+      - "\U000F0374"  # mdi:minus
+      - "\U000F0450"  # mdi:refresh
+      - "\U000F0411"  # mdi:playlist-music
+      # Weather icons
+      - "\U000F0599"  # mdi:weather-sunny
+      - "\U000F0595"  # mdi:weather-cloudy
+      - "\U000F0597"  # mdi:weather-pouring
+      - "\U000F0598"  # mdi:weather-rainy
+      - "\U000F059D"  # mdi:weather-snowy
+      - "\U000F0591"  # mdi:weather-fog
+      - "\U000F067E"  # mdi:weather-partly-cloudy
+      - "\U000F059E"  # mdi:weather-windy
+      - "\U000F0593"  # mdi:weather-lightning
+      # Blinds open/close arrows
+      - "\U000F0143"  # mdi:chevron-up
+      - "\U000F0140"  # mdi:chevron-down
+      # Streaming service icons
+      - "\U000F0746"  # mdi:netflix
+      - "\U000F0AD4"  # mdi:movie-open (for Prime Video)
+      # Transport controls
+      - "\U000F045F"  # mdi:rewind
+      - "\U000F0211"  # mdi:fast-forward
+      # Playlist buttons
+      - "\U000F0594"  # mdi:weather-night (evening)
+  - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
+    id: mdi_40
+    size: 40
+    bpp: 4
+    glyphs:
+      - "\U000F0746"  # mdi:netflix
+      - "\U000F0AD4"  # mdi:movie-open (for Prime Video)
+      - "\U000F0B11"  # mdi:alpha-j-box (for Jellyfin)
+      - "\U000F0B0F"  # mdi:alpha-h-box (for HBO)
+      - "\U000F0B05"  # mdi:alpha-d-box (for Disney+)
+  - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
+    id: mdi_36
+    size: 36
+    bpp: 4
+    glyphs:
+      - "\U000F040A"  # mdi:play
+      - "\U000F03E4"  # mdi:pause
+      - "\U000F04AD"  # mdi:skip-next
+      - "\U000F04AE"  # mdi:skip-previous
+      - "\U000F0238"  # mdi:thermometer
+  - file: "gfonts://Roboto"
+    id: roboto_12
+    size: 12
+    bpp: 4
+  - file: "gfonts://Roboto"
+    id: roboto_14
+    size: 14
+    bpp: 4
+  - file: "gfonts://Roboto"
+    id: roboto_18
+    size: 18
+    bpp: 4
+  - file: "gfonts://Roboto"
+    id: roboto_24
+    size: 24
+    bpp: 4
+
+lvgl:
+  displays:
+    - LCD
+  touchscreens:
+    - my_touch
+  buffer_size: 10%  # Reduced from 25% to help with memory pressure
+  on_idle:
+    timeout: 120s
+    then:
+      - logger.log: "LVGL idle - 2 minutes of inactivity"
+      - if:
+          condition:
+            lambda: 'return id(is_nighttime);'
+          then:
+            - logger.log: "Nighttime - turning off backlight"
+            - light.turn_off: back_light
+  pages:
+    # ==================== PAGE 1: ROOM CONTROL ====================
+    - id: room_page
+      on_swipe_left:
+        - script.execute: script_next_page
+      on_swipe_right:
+        - script.execute: script_prev_page
+      widgets:
+        # ===== TOP STATUS BAR =====
+        # Weather icon (left)
+        - label:
+            id: lbl_weather_room
+            x: 5
+            y: 5
+            width: 25
+            height: 25
+            text_font: mdi_20
+            text: "\U000F0599"
+            text_color: 0xFFCC00
+        # Outdoor temperature
+        - label:
+            id: lbl_outdoor_temp_room
+            x: 28
+            y: 7
+            width: 40
+            text_font: roboto_12
+            text: "--°"
+            text_color: 0x333333
+        # Time (center)
+        - label:
+            id: lbl_time_room
+            x: 95
+            y: 5
+            width: 50
+            text_font: roboto_14
+            text: "--:--"
+            text_color: 0x333333
+            text_align: center
+        # WiFi indicator (right)
+        - label:
+            id: lbl_wifi_room
+            x: 210
+            y: 5
+            width: 25
+            height: 25
+            text_font: mdi_20
+            text: "\U000F0928"
+            text_color: 0x00AA00
+
+        # ===== INDOOR TEMPERATURE (large, centered) =====
+        - label:
+            x: 10
+            y: 35
+            text_font: mdi_36
+            text: "\U000F0238"
+            text_color: 0x4FC3F7
+        - label:
+            id: lbl_temperature
+            x: 55
+            y: 35
+            width: 180
+            text_font: roboto_24
+            text: "--.-°C"
+            text_color: 0x4FC3F7
+
+        # ===== AC CONTROLS =====
+        # Target temp display
+        - label:
+            id: lbl_target_temp
+            x: 10
+            y: 70
+            width: 60
+            text_font: roboto_18
+            text: "--°C"
+            text_color: 0x4FC3F7
+        - label:
+            id: lbl_climate_mode
+            x: 75
+            y: 73
+            width: 50
+            text_font: roboto_12
+            text: "off"
+            text_color: 0x888888
+        # AC Mode buttons row
+        - button:
+            id: btn_climate_off
+            x: 10
+            y: 95
+            width: 45
+            height: 40
+            bg_color: 0x333333
+            radius: 8
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0425"
+                  text_color: 0xFFFFFF
+            on_click:
+              - homeassistant.service:
+                  service: climate.turn_off
+                  data:
+                    entity_id: ${climate_entity}
+        - button:
+            id: btn_climate_cool
+            x: 60
+            y: 95
+            width: 45
+            height: 40
+            bg_color: 0x333333
+            radius: 8
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0F55"
+                  text_color: 0x4FC3F7
+            on_click:
+              - homeassistant.service:
+                  service: climate.set_hvac_mode
+                  data:
+                    entity_id: ${climate_entity}
+                    hvac_mode: cool
+        - button:
+            id: btn_climate_heat
+            x: 110
+            y: 95
+            width: 45
+            height: 40
+            bg_color: 0x333333
+            radius: 8
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0E4B"
+                  text_color: 0xFF5722
+            on_click:
+              - homeassistant.service:
+                  service: climate.set_hvac_mode
+                  data:
+                    entity_id: ${climate_entity}
+                    hvac_mode: heat
+        # Temp +/- buttons
+        - button:
+            id: btn_temp_down
+            x: 165
+            y: 95
+            width: 35
+            height: 40
+            bg_color: 0x333333
+            radius: 8
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0374"
+                  text_color: 0xFFFFFF
+            on_click:
+              - homeassistant.service:
+                  service: climate.set_temperature
+                  data:
+                    entity_id: ${climate_entity}
+                    temperature: !lambda 'return id(climate_target_temp).state - 1;'
+        - button:
+            id: btn_temp_up
+            x: 205
+            y: 95
+            width: 35
+            height: 40
+            bg_color: 0x333333
+            radius: 8
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0415"
+                  text_color: 0xFFFFFF
+            on_click:
+              - homeassistant.service:
+                  service: climate.set_temperature
+                  data:
+                    entity_id: ${climate_entity}
+                    temperature: !lambda 'return id(climate_target_temp).state + 1;'
+
+        # ===== LIGHT TOGGLE (large button) =====
+        - button:
+            id: btn_light
+            x: 10
+            y: 145
+            width: 220
+            height: 50
+            bg_color: 0x333333
+            radius: 10
+            scrollable: false
+            widgets:
+              - label:
+                  x: 15
+                  y: 12
+                  text_font: mdi_20
+                  text: "\U000F0335"
+                  text_color: 0xFFCC00
+              - label:
+                  x: 45
+                  y: 15
+                  text_font: roboto_14
+                  text: "Room Light"
+                  text_color: 0xFFFFFF
+            on_click:
+              - homeassistant.service:
+                  service: light.toggle
+                  data:
+                    entity_id: ${light_entity}
+
+        # ===== BLINDS CONTROLS (buttons that open slider popup) =====
+        # Left blinds button
+        - button:
+            id: btn_blinds_left
+            x: 10
+            y: 205
+            width: 105
+            height: 55
+            bg_color: 0x333333
+            radius: 10
+            scrollable: false
+            widgets:
+              - label:
+                  x: 10
+                  y: 8
+                  text_font: mdi_20
+                  text: "\U000F0AE4"
+                  text_color: 0x81D4FA
+              - label:
+                  x: 38
+                  y: 10
+                  text_font: roboto_14
+                  text: "Left"
+                  text_color: 0xFFFFFF
+              - label:
+                  id: lbl_blinds_left_pct
+                  x: 38
+                  y: 28
+                  width: 50
+                  text_font: roboto_12
+                  text: "0%"
+                  text_color: 0x81D4FA
+            on_click:
+              - lvgl.widget.show: blinds_popup
+              - lvgl.slider.update:
+                  id: slider_blinds_left
+                  value: !lambda 'return (int)id(blinds_position_left).state;'
+              - lvgl.slider.update:
+                  id: slider_blinds_right
+                  value: !lambda 'return (int)id(blinds_position_right).state;'
+        # Right blinds button
+        - button:
+            id: btn_blinds_right
+            x: 125
+            y: 205
+            width: 105
+            height: 55
+            bg_color: 0x333333
+            radius: 10
+            scrollable: false
+            widgets:
+              - label:
+                  x: 10
+                  y: 8
+                  text_font: mdi_20
+                  text: "\U000F0AE4"
+                  text_color: 0x81D4FA
+              - label:
+                  x: 38
+                  y: 10
+                  text_font: roboto_14
+                  text: "Right"
+                  text_color: 0xFFFFFF
+              - label:
+                  id: lbl_blinds_right_pct
+                  x: 38
+                  y: 28
+                  width: 50
+                  text_font: roboto_12
+                  text: "0%"
+                  text_color: 0x81D4FA
+            on_click:
+              - lvgl.widget.show: blinds_popup
+              - lvgl.slider.update:
+                  id: slider_blinds_left
+                  value: !lambda 'return (int)id(blinds_position_left).state;'
+              - lvgl.slider.update:
+                  id: slider_blinds_right
+                  value: !lambda 'return (int)id(blinds_position_right).state;'
+
+        # ===== BLINDS SLIDER POPUP (hidden by default) =====
+        - obj:
+            id: blinds_popup
+            x: 0
+            y: 0
+            width: 240
+            height: 320
+            bg_color: 0x000000
+            bg_opa: 90%
+            hidden: true
+            widgets:
+              # Popup container
+              - obj:
+                  x: 20
+                  y: 60
+                  width: 200
+                  height: 200
+                  bg_color: 0x222222
+                  radius: 15
+                  widgets:
+                    # Title
+                    - label:
+                        x: 0
+                        y: 10
+                        width: 200
+                        text_font: roboto_18
+                        text: "Blinds Control"
+                        text_color: 0xFFFFFF
+                        text_align: center
+                    # Close button
+                    - button:
+                        id: btn_blinds_popup_close
+                        x: 160
+                        y: 5
+                        width: 35
+                        height: 35
+                        bg_color: 0x444444
+                        radius: 17
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_18
+                              text: "X"
+                              text_color: 0xFFFFFF
+                        on_click:
+                          - lvgl.widget.hide: blinds_popup
+                    # Left blinds slider section
+                    - label:
+                        x: 10
+                        y: 50
+                        text_font: roboto_14
+                        text: "Left"
+                        text_color: 0x888888
+                    - slider:
+                        id: slider_blinds_left
+                        x: 50
+                        y: 50
+                        width: 120
+                        height: 25
+                        min_value: 0
+                        max_value: 100
+                        value: 0
+                        bg_color: 0x444444
+                        indicator:
+                          bg_color: 0x81D4FA
+                        knob:
+                          bg_color: 0x81D4FA
+                          radius: 12
+                        on_release:
+                          - homeassistant.service:
+                              service: cover.set_cover_position
+                              data:
+                                entity_id: ${cover_entity_left}
+                                position: !lambda 'return (int)x;'
+                    # Right blinds slider section
+                    - label:
+                        x: 10
+                        y: 95
+                        text_font: roboto_14
+                        text: "Right"
+                        text_color: 0x888888
+                    - slider:
+                        id: slider_blinds_right
+                        x: 50
+                        y: 95
+                        width: 120
+                        height: 25
+                        min_value: 0
+                        max_value: 100
+                        value: 0
+                        bg_color: 0x444444
+                        indicator:
+                          bg_color: 0x81D4FA
+                        knob:
+                          bg_color: 0x81D4FA
+                          radius: 12
+                        on_release:
+                          - homeassistant.service:
+                              service: cover.set_cover_position
+                              data:
+                                entity_id: ${cover_entity_right}
+                                position: !lambda 'return (int)x;'
+                    # Quick buttons row
+                    - button:
+                        id: btn_blinds_open_all
+                        x: 10
+                        y: 140
+                        width: 65
+                        height: 40
+                        bg_color: 0x333333
+                        radius: 8
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_14
+                              text: "Open All"
+                              text_color: 0x81D4FA
+                        on_click:
+                          - homeassistant.service:
+                              service: cover.open_cover
+                              data:
+                                entity_id: ${cover_entity_left}
+                          - homeassistant.service:
+                              service: cover.open_cover
+                              data:
+                                entity_id: ${cover_entity_right}
+                          - lvgl.slider.update:
+                              id: slider_blinds_left
+                              value: 100
+                          - lvgl.slider.update:
+                              id: slider_blinds_right
+                              value: 100
+                    - button:
+                        id: btn_blinds_close_all
+                        x: 85
+                        y: 140
+                        width: 65
+                        height: 40
+                        bg_color: 0x333333
+                        radius: 8
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_14
+                              text: "Close All"
+                              text_color: 0x81D4FA
+                        on_click:
+                          - homeassistant.service:
+                              service: cover.close_cover
+                              data:
+                                entity_id: ${cover_entity_left}
+                          - homeassistant.service:
+                              service: cover.close_cover
+                              data:
+                                entity_id: ${cover_entity_right}
+                          - lvgl.slider.update:
+                              id: slider_blinds_left
+                              value: 0
+                          - lvgl.slider.update:
+                              id: slider_blinds_right
+                              value: 0
+
+    # ==================== PAGE 2: MUSIC ====================
+    - id: music_page
+      on_swipe_left:
+        - script.execute: script_next_page
+      on_swipe_right:
+        - script.execute: script_prev_page
+      widgets:
+        # ===== TOP STATUS BAR =====
+        - label:
+            id: lbl_weather_music
+            x: 5
+            y: 5
+            width: 25
+            height: 25
+            text_font: mdi_20
+            text: "\U000F0599"
+            text_color: 0xFFCC00
+        - label:
+            id: lbl_outdoor_temp_music
+            x: 28
+            y: 7
+            width: 40
+            text_font: roboto_12
+            text: "--°"
+            text_color: 0x333333
+        - label:
+            id: lbl_time_music
+            x: 95
+            y: 5
+            width: 50
+            text_font: roboto_14
+            text: "--:--"
+            text_color: 0x333333
+            text_align: center
+        - label:
+            id: lbl_wifi_music
+            x: 210
+            y: 5
+            width: 25
+            height: 25
+            text_font: mdi_20
+            text: "\U000F0928"
+            text_color: 0x00AA00
+
+        # ===== NOW PLAYING CARD =====
+        - obj:
+            x: 5
+            y: 28
+            width: 230
+            height: 115
+            bg_color: 0x1A1A1A
+            radius: 10
+            pad_all: 0
+            widgets:
+              # Album art (100x100, left side of card)
+              - image:
+                  id: img_album_art
+                  x: 8
+                  y: 8
+                  src: album_art
+              # Track info (right of album art)
+              - label:
+                  x: 114
+                  y: 5
+                  width: 112
+                  text_font: roboto_12
+                  text: "NOW PLAYING"
+                  text_color: 0x1DB954
+              - label:
+                  id: lbl_music_title
+                  x: 114
+                  y: 22
+                  width: 112
+                  height: 42
+                  text_font: roboto_18
+                  text: "No track"
+                  text_color: 0xFFFFFF
+                  long_mode: scroll_circular
+              - label:
+                  id: lbl_music_artist
+                  x: 114
+                  y: 70
+                  width: 112
+                  text_font: roboto_14
+                  text: ""
+                  text_color: 0x888888
+                  long_mode: dot
+
+        # ===== TRANSPORT CONTROLS =====
+        - button:
+            id: btn_prev
+            x: 15
+            y: 153
+            width: 55
+            height: 55
+            bg_color: 0x2A2A2A
+            radius: 27
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_36
+                  text: "\U000F04AE"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_music_prev
+        - button:
+            id: btn_play_pause
+            x: 83
+            y: 147
+            width: 74
+            height: 74
+            bg_color: 0x1DB954
+            radius: 37
+            scrollable: false
+            widgets:
+              - label:
+                  id: lbl_play_pause
+                  align: center
+                  text_font: mdi_36
+                  text: "\U000F040A"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_music_play_pause
+        - button:
+            id: btn_next
+            x: 170
+            y: 153
+            width: 55
+            height: 55
+            bg_color: 0x2A2A2A
+            radius: 27
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_36
+                  text: "\U000F04AD"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_music_next
+
+        # ===== VOLUME SLIDER =====
+        - label:
+            x: 8
+            y: 234
+            text_font: mdi_20
+            text: "\U000F0581"
+            text_color: 0x666666
+        - slider:
+            id: slider_volume
+            x: 33
+            y: 232
+            width: 168
+            height: 25
+            min_value: 0
+            max_value: 100
+            value: 0
+            bg_color: 0x333333
+            indicator:
+              bg_color: 0x1DB954
+            knob:
+              bg_color: 0x1DB954
+              radius: 12
+            on_release:
+              - homeassistant.service:
+                  service: media_player.volume_set
+                  data:
+                    entity_id: media_player.${ma_player}
+                    volume_level: !lambda 'return x / 100.0f;'
+        - label:
+            x: 208
+            y: 234
+            text_font: mdi_20
+            text: "\U000F057E"
+            text_color: 0x1DB954
+
+        # ===== PLAYLIST QUICK-PLAY =====
+        - button:
+            id: btn_morning_playlist
+            x: 5
+            y: 265
+            width: 110
+            height: 48
+            bg_color: 0xE67E22
+            radius: 10
+            scrollable: false
+            widgets:
+              - label:
+                  x: 10
+                  y: 6
+                  text_font: mdi_20
+                  text: "\U000F0599"
+                  text_color: 0xFFFFFF
+              - label:
+                  x: 38
+                  y: 8
+                  text_font: roboto_14
+                  text: "Morning"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_play_morning_playlist
+        - button:
+            id: btn_evening_playlist
+            x: 125
+            y: 265
+            width: 110
+            height: 48
+            bg_color: 0x5C4DB1
+            radius: 10
+            scrollable: false
+            widgets:
+              - label:
+                  x: 10
+                  y: 6
+                  text_font: mdi_20
+                  text: "\U000F0594"
+                  text_color: 0xFFFFFF
+              - label:
+                  x: 38
+                  y: 8
+                  text_font: roboto_14
+                  text: "Evening"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_play_evening_playlist
+
+    # ==================== PAGE 3: TV ====================
+    - id: tv_page
+      on_swipe_left:
+        - script.execute: script_next_page
+      on_swipe_right:
+        - script.execute: script_prev_page
+      widgets:
+        # ===== TOP STATUS BAR =====
+        # Weather icon (left)
+        - label:
+            id: lbl_weather_tv
+            x: 5
+            y: 5
+            width: 25
+            height: 25
+            text_font: mdi_20
+            text: "\U000F0599"
+            text_color: 0xFFCC00
+        # Outdoor temperature
+        - label:
+            id: lbl_outdoor_temp_tv
+            x: 28
+            y: 7
+            width: 40
+            text_font: roboto_12
+            text: "--°"
+            text_color: 0x333333
+        # Time (center)
+        - label:
+            id: lbl_time_tv
+            x: 95
+            y: 5
+            width: 50
+            text_font: roboto_14
+            text: "--:--"
+            text_color: 0x333333
+            text_align: center
+        # WiFi indicator (right)
+        - label:
+            id: lbl_wifi_tv
+            x: 210
+            y: 5
+            width: 25
+            height: 25
+            text_font: mdi_20
+            text: "\U000F0928"
+            text_color: 0x00AA00
+
+        # ===== TV POWER BUTTON =====
+        - button:
+            id: btn_tv_power
+            x: 5
+            y: 28
+            width: 230
+            height: 38
+            bg_color: 0xFF5722
+            radius: 8
+            scrollable: false
+            widgets:
+              - label:
+                  x: 10
+                  y: 8
+                  text_font: mdi_20
+                  text: "\U000F0532"
+                  text_color: 0xFFFFFF
+              - label:
+                  x: 38
+                  y: 10
+                  text_font: roboto_14
+                  text: "TV Power"
+                  text_color: 0xFFFFFF
+              - label:
+                  x: 195
+                  y: 8
+                  text_font: mdi_20
+                  text: "\U000F0425"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_tv_power_toggle
+
+        # ===== NOW PLAYING CARD =====
+        - obj:
+            x: 5
+            y: 70
+            width: 230
+            height: 40
+            bg_color: 0x1A1A1A
+            radius: 8
+            pad_all: 0
+            widgets:
+              - label:
+                  id: lbl_tv_title
+                  x: 8
+                  y: 3
+                  width: 215
+                  height: 20
+                  text_font: roboto_14
+                  text: "Nothing playing"
+                  text_color: 0xFFFFFF
+                  long_mode: scroll_circular
+              - label:
+                  id: lbl_tv_artist
+                  x: 8
+                  y: 24
+                  width: 150
+                  text_font: roboto_12
+                  text: ""
+                  text_color: 0x888888
+                  long_mode: dot
+              - label:
+                  id: lbl_tv_play_pause
+                  x: 195
+                  y: 20
+                  text_font: mdi_20
+                  text: "\U000F040A"
+                  text_color: 0xFF5722
+
+        # ===== TRANSPORT CONTROLS =====
+        - button:
+            id: btn_tv_prev
+            x: 37
+            y: 115
+            width: 50
+            height: 44
+            bg_color: 0x2A2A2A
+            radius: 22
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_36
+                  text: "\U000F04AE"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_tv_media_prev
+        - button:
+            id: btn_tv_play_pause_btn
+            x: 95
+            y: 111
+            width: 50
+            height: 52
+            bg_color: 0xFF5722
+            radius: 26
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_36
+                  text: "\U000F040A"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_tv_media_play_pause
+        - button:
+            id: btn_tv_next
+            x: 153
+            y: 115
+            width: 50
+            height: 44
+            bg_color: 0x2A2A2A
+            radius: 22
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_36
+                  text: "\U000F04AD"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_tv_media_next
+
+        # ===== VOLUME ROW (IR) =====
+        - button:
+            id: btn_tv_vol_down
+            x: 22
+            y: 170
+            width: 60
+            height: 30
+            bg_color: 0x333333
+            radius: 6
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0374"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_tv_volume_down
+        - button:
+            id: btn_tv_mute
+            x: 90
+            y: 170
+            width: 60
+            height: 30
+            bg_color: 0x333333
+            radius: 6
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0581"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_tv_mute
+        - button:
+            id: btn_tv_vol_up
+            x: 158
+            y: 170
+            width: 60
+            height: 30
+            bg_color: 0x333333
+            radius: 6
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0415"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_tv_volume_up
+
+        # ===== APP LAUNCHER =====
+        # Row 1: Jellyfin, Prime, Netflix
+        - button:
+            id: btn_jellyfin
+            x: 5
+            y: 207
+            width: 73
+            height: 48
+            bg_color: 0x00A4DC
+            radius: 10
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_40
+                  text: "\U000F0B11"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_launch_jellyfin
+        - button:
+            id: btn_prime
+            x: 83
+            y: 207
+            width: 73
+            height: 48
+            bg_color: 0x00A8E1
+            radius: 10
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_40
+                  text: "\U000F0AD4"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_launch_prime
+        - button:
+            id: btn_netflix
+            x: 161
+            y: 207
+            width: 74
+            height: 48
+            bg_color: 0xE50914
+            radius: 10
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_40
+                  text: "\U000F0746"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_launch_netflix
+        # Row 2: HBO, Disney+ (wider, fill the row)
+        - button:
+            id: btn_hbo
+            x: 5
+            y: 260
+            width: 113
+            height: 48
+            bg_color: 0x5822B4
+            radius: 10
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_40
+                  text: "\U000F0B0F"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_launch_hbo
+        - button:
+            id: btn_disney
+            x: 123
+            y: 260
+            width: 112
+            height: 48
+            bg_color: 0x113CCF
+            radius: 10
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_40
+                  text: "\U000F0B05"
+                  text_color: 0xFFFFFF
+            on_click:
+              - script.execute: script_launch_disney
+
+switch:
+  # IR Receiver power
+  - platform: gpio
+    name: "IR Receiver Power"
+    pin:
+      number: GPIO06
+    restore_mode: ALWAYS_OFF
+
+remote_receiver:
+  pin:
+    number: GPIO04
+  dump: all
+  use_dma: True
+
+remote_transmitter:
+  id: IR_TX
+  pin:
+    number: GPIO05
+    inverted: True
+  carrier_duty_percent: 50%
+  use_dma: True
+  non_blocking: true
