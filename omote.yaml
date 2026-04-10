@@ -31,6 +31,13 @@ substitutions:
   automation_record: script.record_action
   # TV remote entity for DPAD and channel buttons
   tv_remote_entity: remote.room_tv
+  # Room icon for status bar - pick one:
+  #   Bedroom:     "\U000F02E3" (bed)
+  #   Living room: "\U000F04B9" (sofa)
+  #   Baby room:   "\U000F0F39" (baby bottle)
+  #   Kitchen:     "\U000F04DE" (stove)
+  #   Home:        "\U000F02DC" (home - default)
+  room_icon: "\U000F02E3"
   # Weather entity for status bar
   weather_entity: weather.home
   # Home Assistant base URL (needed to resolve relative entity_picture URLs)
@@ -79,6 +86,10 @@ esphome:
         - globals.set:
             id: device_sleeping
             value: 'false'
+        # Default to music page on boot
+        - lvgl.page.show:
+            id: music_page
+            animation: NONE
 
 # External components
 # NOTE: Comment out components that cause boot loops if hardware not detected
@@ -245,6 +256,35 @@ sensor:
     battery_level:
       id: battery_level
       name: "Battery Level"
+      on_value:
+        - lambda: |-
+            float level = x;
+            bool charging = id(battery_voltage).state > 4.1;
+            std::string icon;
+            uint32_t color_hex;
+
+            if (std::isnan(level)) {
+              icon = "\U000F008E"; // battery-outline (unknown)
+              color_hex = 0x666666;
+            } else if (charging) {
+              if (level >= 75) { icon = "\U000F0084"; color_hex = 0x00FF00; }       // charging full
+              else if (level >= 25) { icon = "\U000F089D"; color_hex = 0xFFFF00; }   // charging mid
+              else if (level >= 5) { icon = "\U000F0086"; color_hex = 0xFF8800; }    // charging low
+              else { icon = "\U000F10CD"; color_hex = 0xFF0000; }                     // charging critical
+            } else {
+              if (level >= 75) { icon = "\U000F0079"; color_hex = 0x00FF00; }        // full
+              else if (level >= 25) { icon = "\U000F007E"; color_hex = 0xFFFF00; }   // mid
+              else if (level >= 5) { icon = "\U000F007B"; color_hex = 0xFF8800; }    // low
+              else { icon = "\U000F0083"; color_hex = 0xFF0000; }                     // critical
+            }
+
+            lv_color_t color = lv_color_hex(color_hex);
+            lv_label_set_text(id(lbl_battery_room), icon.c_str());
+            lv_obj_set_style_text_color(id(lbl_battery_room), color, LV_PART_MAIN);
+            lv_label_set_text(id(lbl_battery_music), icon.c_str());
+            lv_obj_set_style_text_color(id(lbl_battery_music), color, LV_PART_MAIN);
+            lv_label_set_text(id(lbl_battery_tv), icon.c_str());
+            lv_obj_set_style_text_color(id(lbl_battery_tv), color, LV_PART_MAIN);
     update_interval: 60s
   # Home Assistant sensors
   - platform: homeassistant
@@ -812,7 +852,7 @@ globals:
     initial_value: "false"
   - id: current_page
     type: int
-    initial_value: "0"
+    initial_value: "1"
   - id: touch_x_start
     type: int
     initial_value: "0"
@@ -1296,6 +1336,22 @@ font:
       - "\U000F0211"  # mdi:fast-forward
       # Playlist buttons
       - "\U000F0594"  # mdi:weather-night (evening)
+      # Battery icons
+      - "\U000F0079"  # mdi:battery (full, 75-100%)
+      - "\U000F007E"  # mdi:battery-50 (mid, 25-75%)
+      - "\U000F007B"  # mdi:battery-20 (low, 5-25%)
+      - "\U000F0083"  # mdi:battery-alert (extremely low, <5%)
+      - "\U000F0084"  # mdi:battery-charging (charging full)
+      - "\U000F089D"  # mdi:battery-charging-50 (charging mid)
+      - "\U000F0086"  # mdi:battery-charging-20 (charging low)
+      - "\U000F10CD"  # mdi:battery-alert-variant-outline (charging extremely low)
+      - "\U000F008E"  # mdi:battery-outline (unknown/no data)
+      # Room icons
+      - "\U000F02E3"  # mdi:bed (bedroom)
+      - "\U000F04B9"  # mdi:sofa (living room)
+      - "\U000F0F39"  # mdi:baby-bottle (baby room)
+      - "\U000F04DE"  # mdi:stove (kitchen)
+      - "\U000F02DC"  # mdi:home (default)
   - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
     id: mdi_40
     size: 40
@@ -1358,12 +1414,22 @@ lvgl:
         - script.execute: script_prev_page
       widgets:
         # ===== TOP STATUS BAR =====
-        # Weather icon (left)
+        # Room icon (far left)
+        - label:
+            id: lbl_room_room
+            x: 3
+            y: 5
+            width: 22
+            height: 22
+            text_font: mdi_20
+            text: ${room_icon}
+            text_color: 0xAAAAAA
+        # Weather icon
         - label:
             id: lbl_weather_room
-            x: 5
+            x: 25
             y: 5
-            width: 25
+            width: 22
             height: 25
             text_font: mdi_20
             text: "\U000F0599"
@@ -1371,7 +1437,7 @@ lvgl:
         # Outdoor temperature
         - label:
             id: lbl_outdoor_temp_room
-            x: 28
+            x: 47
             y: 7
             width: 40
             text_font: roboto_12
@@ -1387,10 +1453,20 @@ lvgl:
             text: "--:--"
             text_color: 0x333333
             text_align: center
+        # Battery indicator
+        - label:
+            id: lbl_battery_room
+            x: 175
+            y: 5
+            width: 25
+            height: 25
+            text_font: mdi_20
+            text: "\U000F008E"
+            text_color: 0x666666
         # WiFi indicator (right)
         - label:
             id: lbl_wifi_room
-            x: 210
+            x: 215
             y: 5
             width: 25
             height: 25
@@ -1821,18 +1897,28 @@ lvgl:
         - script.execute: script_prev_page
       widgets:
         # ===== TOP STATUS BAR =====
+        # Room icon (far left)
+        - label:
+            id: lbl_room_music
+            x: 3
+            y: 5
+            width: 22
+            height: 22
+            text_font: mdi_20
+            text: ${room_icon}
+            text_color: 0xAAAAAA
         - label:
             id: lbl_weather_music
-            x: 5
+            x: 25
             y: 5
-            width: 25
+            width: 22
             height: 25
             text_font: mdi_20
             text: "\U000F0599"
             text_color: 0xFFCC00
         - label:
             id: lbl_outdoor_temp_music
-            x: 28
+            x: 47
             y: 7
             width: 40
             text_font: roboto_12
@@ -1847,9 +1933,19 @@ lvgl:
             text: "--:--"
             text_color: 0x333333
             text_align: center
+        # Battery indicator
+        - label:
+            id: lbl_battery_music
+            x: 175
+            y: 5
+            width: 25
+            height: 25
+            text_font: mdi_20
+            text: "\U000F008E"
+            text_color: 0x666666
         - label:
             id: lbl_wifi_music
-            x: 210
+            x: 215
             y: 5
             width: 25
             height: 25
@@ -2048,12 +2144,22 @@ lvgl:
         - script.execute: script_prev_page
       widgets:
         # ===== TOP STATUS BAR =====
-        # Weather icon (left)
+        # Room icon (far left)
+        - label:
+            id: lbl_room_tv
+            x: 3
+            y: 5
+            width: 22
+            height: 22
+            text_font: mdi_20
+            text: ${room_icon}
+            text_color: 0xAAAAAA
+        # Weather icon
         - label:
             id: lbl_weather_tv
-            x: 5
+            x: 25
             y: 5
-            width: 25
+            width: 22
             height: 25
             text_font: mdi_20
             text: "\U000F0599"
@@ -2061,7 +2167,7 @@ lvgl:
         # Outdoor temperature
         - label:
             id: lbl_outdoor_temp_tv
-            x: 28
+            x: 47
             y: 7
             width: 40
             text_font: roboto_12
@@ -2077,10 +2183,20 @@ lvgl:
             text: "--:--"
             text_color: 0x333333
             text_align: center
+        # Battery indicator
+        - label:
+            id: lbl_battery_tv
+            x: 175
+            y: 5
+            width: 25
+            height: 25
+            text_font: mdi_20
+            text: "\U000F008E"
+            text_color: 0x666666
         # WiFi indicator (right)
         - label:
             id: lbl_wifi_tv
-            x: 210
+            x: 215
             y: 5
             width: 25
             height: 25
