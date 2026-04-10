@@ -316,6 +316,11 @@ sensor:
           text:
             format: "%d%%"
             args: ['(int)x']
+      - lvgl.label.update:
+          id: lbl_popup_blinds_left_pct
+          text:
+            format: "%d%%"
+            args: ['(int)x']
   - platform: homeassistant
     id: blinds_position_right
     entity_id: ${cover_entity_right}
@@ -323,6 +328,11 @@ sensor:
     on_value:
       - lvgl.label.update:
           id: lbl_blinds_right_pct
+          text:
+            format: "%d%%"
+            args: ['(int)x']
+      - lvgl.label.update:
+          id: lbl_popup_blinds_right_pct
           text:
             format: "%d%%"
             args: ['(int)x']
@@ -1677,13 +1687,12 @@ lvgl:
                   text: "0%"
                   text_color: 0x81D4FA
             on_click:
-              - lvgl.widget.show: blinds_popup
-              - lvgl.slider.update:
-                  id: slider_blinds_left
-                  value: !lambda 'return (int)id(blinds_position_left).state;'
-              - lvgl.slider.update:
-                  id: slider_blinds_right
-                  value: !lambda 'return (int)id(blinds_position_right).state;'
+              - lvgl.widget.show: blinds_popup_left
+              - lvgl.label.update:
+                  id: lbl_popup_blinds_left_pct
+                  text:
+                    format: "%d%%"
+                    args: ['(int)id(blinds_position_left).state']
         # Right blinds button
         - button:
             id: btn_blinds_right
@@ -1716,17 +1725,16 @@ lvgl:
                   text: "0%"
                   text_color: 0x81D4FA
             on_click:
-              - lvgl.widget.show: blinds_popup
-              - lvgl.slider.update:
-                  id: slider_blinds_left
-                  value: !lambda 'return (int)id(blinds_position_left).state;'
-              - lvgl.slider.update:
-                  id: slider_blinds_right
-                  value: !lambda 'return (int)id(blinds_position_right).state;'
+              - lvgl.widget.show: blinds_popup_right
+              - lvgl.label.update:
+                  id: lbl_popup_blinds_right_pct
+                  text:
+                    format: "%d%%"
+                    args: ['(int)id(blinds_position_right).state']
 
-        # ===== BLINDS SLIDER POPUP (hidden by default) =====
+        # ===== LEFT BLINDS POPUP (hidden by default) =====
         - obj:
-            id: blinds_popup
+            id: blinds_popup_left
             x: 0
             y: 0
             width: 240
@@ -1734,13 +1742,14 @@ lvgl:
             bg_color: 0x000000
             bg_opa: 90%
             hidden: true
+            on_swipe_up:
+              - lvgl.widget.hide: blinds_popup_left
             widgets:
-              # Popup container
               - obj:
-                  x: 20
-                  y: 60
-                  width: 200
-                  height: 200
+                  x: 0
+                  y: 15
+                  width: 210
+                  height: 260
                   bg_color: 0x222222
                   radius: 15
                   widgets:
@@ -1748,15 +1757,14 @@ lvgl:
                     - label:
                         x: 0
                         y: 10
-                        width: 200
+                        width: 180
                         text_font: roboto_18
-                        text: "Blinds Control"
+                        text: "Left Blinds"
                         text_color: 0xFFFFFF
                         text_align: center
                     # Close button
                     - button:
-                        id: btn_blinds_popup_close
-                        x: 160
+                        x: 140
                         y: 5
                         width: 35
                         height: 35
@@ -1770,69 +1778,69 @@ lvgl:
                               text: "X"
                               text_color: 0xFFFFFF
                         on_click:
-                          - lvgl.widget.hide: blinds_popup
-                    # Left blinds slider section
-                    - label:
-                        x: 10
-                        y: 50
-                        text_font: roboto_14
-                        text: "Left"
-                        text_color: 0x888888
-                    - slider:
-                        id: slider_blinds_left
-                        x: 50
-                        y: 50
-                        width: 120
-                        height: 25
-                        min_value: 0
-                        max_value: 100
-                        value: 0
-                        bg_color: 0x444444
-                        indicator:
-                          bg_color: 0x81D4FA
-                        knob:
-                          bg_color: 0x81D4FA
-                          radius: 12
-                        on_release:
+                          - lvgl.widget.hide: blinds_popup_left
+                    # +/- buttons row with position display in center
+                    - button:
+                        x: 0
+                        y: 55
+                        width: 55
+                        height: 40
+                        bg_color: 0x333333
+                        radius: 8
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_18
+                              text: "- 10"
+                              text_color: 0x81D4FA
+                        on_click:
                           - homeassistant.service:
                               service: cover.set_cover_position
                               data:
                                 entity_id: ${cover_entity_left}
-                                position: !lambda 'return (int)x;'
-                    # Right blinds slider section
+                                position: !lambda |-
+                                  int pos = (int)id(blinds_position_left).state - 10;
+                                  if (pos < 0) pos = 0;
+                                  return pos;
                     - label:
-                        x: 10
-                        y: 95
-                        text_font: roboto_14
-                        text: "Right"
-                        text_color: 0x888888
-                    - slider:
-                        id: slider_blinds_right
-                        x: 50
-                        y: 95
-                        width: 120
-                        height: 25
-                        min_value: 0
-                        max_value: 100
-                        value: 0
-                        bg_color: 0x444444
-                        indicator:
-                          bg_color: 0x81D4FA
-                        knob:
-                          bg_color: 0x81D4FA
-                          radius: 12
-                        on_release:
+                        id: lbl_popup_blinds_left_pct
+                        x: 60
+                        y: 65
+                        width: 65
+                        height: 40
+                        text_font: roboto_18
+                        text: "0%"
+                        text_color: 0x81D4FA
+                        text_align: center
+                    - button:
+                        x: 120
+                        y: 55
+                        width: 55
+                        height: 40
+                        bg_color: 0x333333
+                        radius: 8
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_18
+                              text: "+ 10"
+                              text_color: 0x81D4FA
+                        on_click:
                           - homeassistant.service:
                               service: cover.set_cover_position
                               data:
-                                entity_id: ${cover_entity_right}
-                                position: !lambda 'return (int)x;'
-                    # Quick buttons row
+                                entity_id: ${cover_entity_left}
+                                position: !lambda |-
+                                  int pos = (int)id(blinds_position_left).state + 10;
+                                  if (pos > 100) pos = 100;
+                                  return pos;
+                    # Preset buttons row
                     - button:
-                        id: btn_blinds_open_all
-                        x: 10
-                        y: 140
-                        width: 65
+                        x: 0
+                        y: 110
+                        width: 55
                         height: 40
                         bg_color: 0x333333
                         radius: 8
@@ -1841,28 +1849,18 @@ lvgl:
                           - label:
                               align: center
                               text_font: roboto_14
-                              text: "Open All"
+                              text: "0%"
                               text_color: 0x81D4FA
                         on_click:
                           - homeassistant.service:
-                              service: cover.open_cover
+                              service: cover.set_cover_position
                               data:
                                 entity_id: ${cover_entity_left}
-                          - homeassistant.service:
-                              service: cover.open_cover
-                              data:
-                                entity_id: ${cover_entity_right}
-                          - lvgl.slider.update:
-                              id: slider_blinds_left
-                              value: 100
-                          - lvgl.slider.update:
-                              id: slider_blinds_right
-                              value: 100
+                                position: "0"
                     - button:
-                        id: btn_blinds_close_all
-                        x: 85
-                        y: 140
-                        width: 65
+                        x: 60
+                        y: 110
+                        width: 55
                         height: 40
                         bg_color: 0x333333
                         radius: 8
@@ -1871,23 +1869,198 @@ lvgl:
                           - label:
                               align: center
                               text_font: roboto_14
-                              text: "Close All"
+                              text: "30%"
                               text_color: 0x81D4FA
                         on_click:
                           - homeassistant.service:
-                              service: cover.close_cover
+                              service: cover.set_cover_position
                               data:
                                 entity_id: ${cover_entity_left}
+                                position: "30"
+                    - button:
+                        x: 120
+                        y: 110
+                        width: 55
+                        height: 40
+                        bg_color: 0x333333
+                        radius: 8
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_14
+                              text: "100%"
+                              text_color: 0x81D4FA
+                        on_click:
                           - homeassistant.service:
-                              service: cover.close_cover
+                              service: cover.set_cover_position
+                              data:
+                                entity_id: ${cover_entity_left}
+                                position: "100"
+
+        # ===== RIGHT BLINDS POPUP (hidden by default) =====
+        - obj:
+            id: blinds_popup_right
+            x: 0
+            y: 0
+            width: 240
+            height: 320
+            bg_color: 0x000000
+            bg_opa: 90%
+            hidden: true
+            widgets:
+              - obj:
+                  x: 0
+                  y: 15
+                  width: 210
+                  height: 260
+                  bg_color: 0x222222
+                  radius: 15
+                  widgets:
+                    # Title
+                    - label:
+                        x: 0
+                        y: 10
+                        width: 180
+                        text_font: roboto_18
+                        text: "Right Blinds"
+                        text_color: 0xFFFFFF
+                        text_align: center
+                    # Close button
+                    - button:
+                        x: 140
+                        y: 5
+                        width: 35
+                        height: 35
+                        bg_color: 0x444444
+                        radius: 17
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_18
+                              text: "X"
+                              text_color: 0xFFFFFF
+                        on_click:
+                          - lvgl.widget.hide: blinds_popup_right
+                    # +/- buttons row with position display in center
+                    - button:
+                        x: 0
+                        y: 55
+                        width: 55
+                        height: 40
+                        bg_color: 0x333333
+                        radius: 8
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_18
+                              text: "- 10"
+                              text_color: 0x81D4FA
+                        on_click:
+                          - homeassistant.service:
+                              service: cover.set_cover_position
                               data:
                                 entity_id: ${cover_entity_right}
-                          - lvgl.slider.update:
-                              id: slider_blinds_left
-                              value: 0
-                          - lvgl.slider.update:
-                              id: slider_blinds_right
-                              value: 0
+                                position: !lambda |-
+                                  int pos = (int)id(blinds_position_right).state - 10;
+                                  if (pos < 0) pos = 0;
+                                  return pos;
+                    - label:
+                        id: lbl_popup_blinds_right_pct
+                        x: 60
+                        y: 65
+                        width: 65
+                        height: 40
+                        text_font: roboto_18
+                        text: "0%"
+                        text_color: 0x81D4FA
+                        text_align: center
+                    - button:
+                        x: 120
+                        y: 55
+                        width: 55
+                        height: 40
+                        bg_color: 0x333333
+                        radius: 8
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_18
+                              text: "+ 10"
+                              text_color: 0x81D4FA
+                        on_click:
+                          - homeassistant.service:
+                              service: cover.set_cover_position
+                              data:
+                                entity_id: ${cover_entity_right}
+                                position: !lambda |-
+                                  int pos = (int)id(blinds_position_right).state + 10;
+                                  if (pos > 100) pos = 100;
+                                  return pos;
+                    # Preset buttons row
+                    - button:
+                        x: 0
+                        y: 110
+                        width: 55
+                        height: 40
+                        bg_color: 0x333333
+                        radius: 8
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_14
+                              text: "0%"
+                              text_color: 0x81D4FA
+                        on_click:
+                          - homeassistant.service:
+                              service: cover.set_cover_position
+                              data:
+                                entity_id: ${cover_entity_right}
+                                position: "0"
+                    - button:
+                        x: 60
+                        y: 110
+                        width: 55
+                        height: 40
+                        bg_color: 0x333333
+                        radius: 8
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_14
+                              text: "30%"
+                              text_color: 0x81D4FA
+                        on_click:
+                          - homeassistant.service:
+                              service: cover.set_cover_position
+                              data:
+                                entity_id: ${cover_entity_right}
+                                position: "30"
+                    - button:
+                        x: 120
+                        y: 110
+                        width: 55
+                        height: 40
+                        bg_color: 0x333333
+                        radius: 8
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_14
+                              text: "100%"
+                              text_color: 0x81D4FA
+                        on_click:
+                          - homeassistant.service:
+                              service: cover.set_cover_position
+                              data:
+                                entity_id: ${cover_entity_right}
+                                position: "100"
 
     # ==================== PAGE 2: MUSIC ====================
     - id: music_page
