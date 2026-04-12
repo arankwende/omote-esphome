@@ -45,6 +45,53 @@ substitutions:
   # Music Assistant playlist URIs for quick-play buttons (find these in MA library)
   ma_morning_playlist: "library://playlist/1"
   ma_evening_playlist: "library://playlist/2"
+  # Room page quick action buttons
+  # Button 1: Movie Night
+  room_btn_1_bg_color: "0x1A237E"
+  room_btn_1_icon: "\U000F0AD4"
+  room_btn_1_icon_color: "0xFFCC00"
+  room_btn_1_script: script.your_room_action_1
+  # Button 2: Party Mode
+  room_btn_2_bg_color: "0x880E4F"
+  room_btn_2_icon: "\U000F05CF"
+  room_btn_2_icon_color: "0xFF4081"
+  room_btn_2_script: script.your_room_action_2
+  # Button 3: Sleep Mode
+  room_btn_3_bg_color: "0x1A237E"
+  room_btn_3_icon: "\U000F0594"
+  room_btn_3_icon_color: "0x81D4FA"
+  room_btn_3_script: script.your_room_action_3
+  # App launcher buttons on TV page
+  # App 1 (Row 1, left)
+  app_1_bg_color: "0x00A4DC"
+  app_1_font: si_40
+  app_1_icon: "\U0000EFA5"
+  app_1_icon_color: "0xFFFFFF"
+  app_1_source: "Jellyfin"
+  # App 2 (Row 1, center)
+  app_2_bg_color: "0x5822B4"
+  app_2_font: si_40
+  app_2_icon: "\U0000EEEE"
+  app_2_icon_color: "0xFFFFFF"
+  app_2_source: "HBO Max"
+  # App 3 (Row 1, right)
+  app_3_bg_color: "0xE50914"
+  app_3_font: si_40
+  app_3_icon: "\U0000F171"
+  app_3_icon_color: "0xFFFFFF"
+  app_3_source: "Netflix"
+  # App 4 (Row 2, left)
+  app_4_bg_color: "0x00A8E1"
+  app_4_font: si_80
+  app_4_icon: "\U0000F2CA"
+  app_4_icon_color: "0xFFFFFF"
+  app_4_source: "Prime Video"
+  # App 5 (Row 2, right)
+  app_5_bg_color: "0x113CCF"
+  app_5_font: disney_plus_40
+  app_5_icon: "\U0000F000"
+  app_5_icon_color: "0xFFFFFF"
+  app_5_source: "Disney+"
   # TV IR codes (first put the proper protocol action in remote_type, then fill the rest)
   # Format: depending on the protocol, it could be just "data:" as with pronto or address, command (hex values), you need to check which case and comment data and uncomment the others if its address command
   remote_type: transmit_pronto
@@ -512,6 +559,17 @@ text_sensor:
             - lvgl.label.update:
                 id: lbl_tv_play_pause
                 text: "\U000F040A"
+      - if:
+          condition:
+            lambda: 'return x == "off" || x == "unavailable" || x == "standby";'
+          then:
+            - lvgl.widget.update:
+                id: lbl_tv_power_icon
+                text_color: 0xFF0000
+          else:
+            - lvgl.widget.update:
+                id: lbl_tv_power_icon
+                text_color: 0x00FF00
   # Sun state for nighttime screen off
   - platform: homeassistant
     id: sun_state
@@ -1127,50 +1185,50 @@ script:
           data:
             entity_id: ${tv_media_player}
 
-  - id: script_launch_jellyfin
+  - id: script_launch_app_1
     then:
-      - logger.log: "Launching Jellyfin"
+      - logger.log: "Launching ${app_1_source}"
       - homeassistant.service:
           service: media_player.select_source
           data:
             entity_id: ${tv_media_player}
-            source: "Jellyfin"
+            source: "${app_1_source}"
 
-  - id: script_launch_prime
+  - id: script_launch_app_2
     then:
-      - logger.log: "Launching Prime Video"
+      - logger.log: "Launching ${app_2_source}"
       - homeassistant.service:
           service: media_player.select_source
           data:
             entity_id: ${tv_media_player}
-            source: "Prime Video"
+            source: "${app_2_source}"
 
-  - id: script_launch_netflix
+  - id: script_launch_app_3
     then:
-      - logger.log: "Launching Netflix"
+      - logger.log: "Launching ${app_3_source}"
       - homeassistant.service:
           service: media_player.select_source
           data:
             entity_id: ${tv_media_player}
-            source: "Netflix"
+            source: "${app_3_source}"
 
-  - id: script_launch_hbo
+  - id: script_launch_app_4
     then:
-      - logger.log: "Launching HBO Max"
+      - logger.log: "Launching ${app_4_source}"
       - homeassistant.service:
           service: media_player.select_source
           data:
             entity_id: ${tv_media_player}
-            source: "HBO Max"
+            source: "${app_4_source}"
 
-  - id: script_launch_disney
+  - id: script_launch_app_5
     then:
-      - logger.log: "Launching Disney+"
+      - logger.log: "Launching ${app_5_source}"
       - homeassistant.service:
           service: media_player.select_source
           data:
             entity_id: ${tv_media_player}
-            source: "Disney+"
+            source: "${app_5_source}"
 
   # Playlist quick-play scripts
   - id: script_play_morning_playlist
@@ -1340,7 +1398,9 @@ font:
       - "\U000F0140"  # mdi:chevron-down
       # Streaming service icons
       - "\U000F0746"  # mdi:netflix
-      - "\U000F0AD4"  # mdi:movie-open (for Prime Video)
+      - "\U000F0AD4"  # mdi:movie-open (movie night)
+      # Room quick action icons
+      - "\U000F05CF"  # mdi:party-popper (party mode)
       # Transport controls
       - "\U000F045F"  # mdi:rewind
       - "\U000F0211"  # mdi:fast-forward
@@ -1362,16 +1422,31 @@ font:
       - "\U000F0F39"  # mdi:baby-bottle (baby room)
       - "\U000F04DE"  # mdi:stove (kitchen)
       - "\U000F02DC"  # mdi:home (default)
-  - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
-    id: mdi_40
+      - "\U000F00DB"  # mdi:bookshelf (bookcase)
+  # Simple Icons font for brand logos (pinned to v14.15.0 - codepoints shift between versions)
+  - file: "https://cdn.jsdelivr.net/npm/simple-icons-font@14.15.0/font/SimpleIcons.ttf"
+    id: si_40
     size: 40
     bpp: 4
     glyphs:
-      - "\U000F0746"  # mdi:netflix
-      - "\U000F0AD4"  # mdi:movie-open (for Prime Video)
-      - "\U000F0B11"  # mdi:alpha-j-box (for Jellyfin)
-      - "\U000F0B0F"  # mdi:alpha-h-box (for HBO)
-      - "\U000F0B05"  # mdi:alpha-d-box (for Disney+)
+      - "\U0000EFA5"  # Jellyfin
+      - "\U0000F2CA"  # Prime Video
+      - "\U0000F171"  # Netflix
+      - "\U0000EEEE"  # HBO
+  # Simple Icons font for brand logos (pinned to v14.15.0 - codepoints shift between versions)
+  - file: "https://cdn.jsdelivr.net/npm/simple-icons-font@14.15.0/font/SimpleIcons.ttf"
+    id: si_80
+    size: 80
+    bpp: 4
+    glyphs:
+      - "\U0000F2CA"  # Prime Video
+  # Disney+ custom single-glyph font (built from SVG)
+  - file: "disney_plus.ttf"
+    id: disney_plus_40
+    size: 40
+    bpp: 4
+    glyphs:
+      - "\U0000F000"
   - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
     id: mdi_36
     size: 36
@@ -1731,6 +1806,68 @@ lvgl:
                   text:
                     format: "%d%%"
                     args: ['(int)id(blinds_position_right).state']
+
+        # ===== QUICK ACTION BUTTONS =====
+        - button:
+            id: room_btn_1
+            x: 5
+            y: 270
+            width: 73
+            height: 48
+            bg_color: ${room_btn_1_bg_color}
+            radius: 10
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "${room_btn_1_icon}"
+                  text_color: ${room_btn_1_icon_color}
+            on_click:
+              - homeassistant.service:
+                  service: script.turn_on
+                  data:
+                    entity_id: ${room_btn_1_script}
+        - button:
+            id: room_btn_2
+            x: 83
+            y: 270
+            width: 73
+            height: 48
+            bg_color: ${room_btn_2_bg_color}
+            radius: 10
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "${room_btn_2_icon}"
+                  text_color: ${room_btn_2_icon_color}
+            on_click:
+              - homeassistant.service:
+                  service: script.turn_on
+                  data:
+                    entity_id: ${room_btn_2_script}
+        - button:
+            id: room_btn_3
+            x: 161
+            y: 270
+            width: 74
+            height: 48
+            bg_color: ${room_btn_3_bg_color}
+            radius: 10
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "${room_btn_3_icon}"
+                  text_color: ${room_btn_3_icon_color}
+            on_click:
+              - homeassistant.service:
+                  service: script.turn_on
+                  data:
+                    entity_id: ${room_btn_3_script}
 
         # ===== LEFT BLINDS POPUP (hidden by default) =====
         - obj:
@@ -2377,74 +2514,63 @@ lvgl:
             text: "\U000F0928"
             text_color: 0x00AA00
 
-        # ===== TV POWER BUTTON =====
+        # ===== TV POWER + NOW PLAYING (combined) =====
         - button:
             id: btn_tv_power
             x: 5
             y: 28
             width: 230
-            height: 38
-            bg_color: 0xFF5722
-            radius: 8
+            height: 82
+            bg_color: 0x1A1A1A
+            radius: 10
             scrollable: false
             widgets:
+              # TV icon (top-left)
               - label:
-                  x: 10
-                  y: 8
+                  x: 8
+                  y: 5
                   text_font: mdi_20
                   text: "\U000F0532"
                   text_color: 0xFFFFFF
+              # Power icon (top-right, color changes with TV state)
               - label:
-                  x: 38
-                  y: 10
-                  text_font: roboto_14
-                  text: "TV Power"
-                  text_color: 0xFFFFFF
-              - label:
-                  x: 195
-                  y: 8
+                  id: lbl_tv_power_icon
+                  x: 200
+                  y: 5
                   text_font: mdi_20
                   text: "\U000F0425"
-                  text_color: 0xFFFFFF
-            on_click:
-              - script.execute: script_tv_power_toggle
-
-        # ===== NOW PLAYING CARD =====
-        - obj:
-            x: 5
-            y: 70
-            width: 230
-            height: 40
-            bg_color: 0x1A1A1A
-            radius: 8
-            pad_all: 0
-            widgets:
+                  text_color: 0xFF5722
+              # Now playing title
               - label:
                   id: lbl_tv_title
                   x: 8
-                  y: 3
-                  width: 215
+                  y: 30
+                  width: 185
                   height: 20
                   text_font: roboto_14
                   text: "Nothing playing"
                   text_color: 0xFFFFFF
                   long_mode: scroll_circular
+              # Artist
               - label:
                   id: lbl_tv_artist
                   x: 8
-                  y: 24
-                  width: 150
+                  y: 52
+                  width: 155
                   text_font: roboto_12
                   text: ""
                   text_color: 0x888888
                   long_mode: dot
+              # Play/pause indicator (bottom-right)
               - label:
                   id: lbl_tv_play_pause
-                  x: 195
-                  y: 20
+                  x: 200
+                  y: 50
                   text_font: mdi_20
                   text: "\U000F040A"
                   text_color: 0xFF5722
+            on_click:
+              - script.execute: script_tv_power_toggle
 
         # ===== TRANSPORT CONTROLS =====
         - button:
@@ -2553,93 +2679,93 @@ lvgl:
               - script.execute: script_tv_volume_up
 
         # ===== APP LAUNCHER =====
-        # Row 1: Jellyfin, Prime, Netflix
+        # Row 1
         - button:
-            id: btn_jellyfin
+            id: btn_app_1
             x: 5
             y: 207
             width: 73
             height: 48
-            bg_color: 0x00A4DC
+            bg_color: ${app_1_bg_color}
             radius: 10
             scrollable: false
             widgets:
               - label:
                   align: center
-                  text_font: mdi_40
-                  text: "\U000F0B11"
-                  text_color: 0xFFFFFF
+                  text_font: ${app_1_font}
+                  text: "${app_1_icon}"
+                  text_color: ${app_1_icon_color}
             on_click:
-              - script.execute: script_launch_jellyfin
+              - script.execute: script_launch_app_1
         - button:
-            id: btn_prime
+            id: btn_app_2
             x: 83
             y: 207
             width: 73
             height: 48
-            bg_color: 0x00A8E1
+            bg_color: ${app_2_bg_color}
             radius: 10
             scrollable: false
             widgets:
               - label:
                   align: center
-                  text_font: mdi_40
-                  text: "\U000F0AD4"
-                  text_color: 0xFFFFFF
+                  text_font: ${app_2_font}
+                  text: "${app_2_icon}"
+                  text_color: ${app_2_icon_color}
             on_click:
-              - script.execute: script_launch_prime
+              - script.execute: script_launch_app_2
         - button:
-            id: btn_netflix
+            id: btn_app_3
             x: 161
             y: 207
             width: 74
             height: 48
-            bg_color: 0xE50914
+            bg_color: ${app_3_bg_color}
             radius: 10
             scrollable: false
             widgets:
               - label:
                   align: center
-                  text_font: mdi_40
-                  text: "\U000F0746"
-                  text_color: 0xFFFFFF
+                  text_font: ${app_3_font}
+                  text: "${app_3_icon}"
+                  text_color: ${app_3_icon_color}
             on_click:
-              - script.execute: script_launch_netflix
-        # Row 2: HBO, Disney+ (wider, fill the row)
+              - script.execute: script_launch_app_3
+        # Row 2
         - button:
-            id: btn_hbo
+            id: btn_app_4
             x: 5
             y: 260
             width: 113
             height: 48
-            bg_color: 0x5822B4
+            bg_color: ${app_4_bg_color}
             radius: 10
             scrollable: false
             widgets:
               - label:
                   align: center
-                  text_font: mdi_40
-                  text: "\U000F0B0F"
-                  text_color: 0xFFFFFF
+                  text_font: ${app_4_font}
+                  text: "${app_4_icon}"
+                  text_color: ${app_4_icon_color}
             on_click:
-              - script.execute: script_launch_hbo
+              - script.execute: script_launch_app_4
         - button:
-            id: btn_disney
+            id: btn_app_5
             x: 123
             y: 260
             width: 112
             height: 48
-            bg_color: 0x113CCF
+            bg_color: ${app_5_bg_color}
             radius: 10
             scrollable: false
             widgets:
               - label:
                   align: center
-                  text_font: mdi_40
-                  text: "\U000F0B05"
-                  text_color: 0xFFFFFF
+                  text_font: ${app_5_font}
+                  text: "${app_5_icon}"
+                  text_color: ${app_5_icon_color}
             on_click:
-              - script.execute: script_launch_disney
+              - script.execute: script_launch_app_5
 
 switch:
   # IR Receiver power
