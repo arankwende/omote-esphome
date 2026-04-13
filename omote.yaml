@@ -48,12 +48,12 @@ substitutions:
   # Room page quick action buttons
   # Button 1: Movie Night
   room_btn_1_bg_color: "0x1A237E"
-  room_btn_1_icon: "\U000F0AD4"
+  room_btn_1_icon: "\U000F0FCE"
   room_btn_1_icon_color: "0xFFCC00"
   room_btn_1_script: script.your_room_action_1
   # Button 2: Party Mode
   room_btn_2_bg_color: "0x880E4F"
-  room_btn_2_icon: "\U000F05CF"
+  room_btn_2_icon: "\U000F1056"
   room_btn_2_icon_color: "0xFF4081"
   room_btn_2_script: script.your_room_action_2
   # Button 3: Sleep Mode
@@ -155,12 +155,13 @@ esp32:
 # Note: GPIO08 (TCA8418 INT) is active-LOW (idle HIGH), incompatible with ANY_HIGH mode
 deep_sleep:
   id: deep_sleep_ctrl
+  touch_wakeup: True
   wakeup_pin:
     number: GPIO03
 #    allow_other_uses: true
     inverted: true  # Wake on button press (LOW)
     ignore_strapping_warning: true
-  wakeup_pin_mode: KEEP_AWAKE
+  wakeup_pin_mode: IGNORE
 # PSRAM configuration - CRITICAL for LVGL display
 # The Omote uses ESP32-S3 with PSRAM
 psram:
@@ -416,10 +417,6 @@ sensor:
 button:
   - platform: restart
     name: "Restart"
-  - platform: template
-    name: "TV IR"
-    on_press:
-      - script.execute: script_tv_power_toggle # This executes the script defined 
 
 text_sensor:
   # Weather condition from weather entity
@@ -468,7 +465,7 @@ text_sensor:
             - lvgl.widget.update:
                 id: btn_light
                 bg_color: 0x333333
-  # Music Assistant player info
+  # Music player info
   - platform: homeassistant
     id: music_title
     entity_id: media_player.${ma_player}
@@ -542,8 +539,7 @@ text_sensor:
                 url: !lambda |-
                   if (x.rfind("http", 0) == 0) return x;
                   return std::string("${ha_url}") + x;
-  # TV media player art - no display widget on TV page, sensor omitted
-  # TV media player state for play/pause icon
+   # TV media player state for play/pause icon
   - platform: homeassistant
     id: tv_media_state
     entity_id: ${tv_media_player}
@@ -615,12 +611,12 @@ binary_sensor:
   #
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
-    id: btn_1
+    id: btn_stop
     row: 0
     col: 4
-    name: "Botón 1"
+    name: "Stop"
     on_press:
-      - logger.log: "Button 1 - launching automation"
+      - logger.log: "Button 1 - Stop"
       - homeassistant.service:
           service: script.turn_on
           data:
@@ -628,34 +624,33 @@ binary_sensor:
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
-    id: btn_2
+    id: btn_rewind
     row: 0
     col: 3
-    name: "Botón 2"
+    name: "Rewind"
     on_press:
-      - logger.log: "Button 2 - navigate left"
+      - logger.log: "Button 2 - Rewind"
 #      - script.execute: script_reset_backlight_timeout
       - script.execute: script_prev_page
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
-    id: btn_3
+    id: btn_play
     row: 0
     col: 1
-    name: "Botón 3"
+    name: "Play/Pause"
     on_press:
-      - logger.log: "Button 3 - navigate right"
- #     - script.execute: script_reset_backlight_timeout
+      - logger.log: "Button 3 - Play/Pause"
       - script.execute: script_next_page
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
-    id: btn_4
+    id: btn_fastforward
     row: 1
     col: 0
-    name: "Botón 4"
+    name: "Botón 4 - Fast Forward"
     on_press:
-      - logger.log: "Button 4 - launching automation"
+      - logger.log: "Button 4 - Fast Forward"
       - homeassistant.service:
           service: script.turn_on
           data:
@@ -871,11 +866,7 @@ binary_sensor:
     col: 4
     name: "Scene Button 2"
     on_press:
-      - logger.log: "Scene 2 - launching automation"
-      - homeassistant.service:
-          service: script.turn_on
-          data:
-            entity_id: ${automation_scene_2}
+      - script.execute:  script_prev_page
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -885,10 +876,7 @@ binary_sensor:
     name: "Scene Button 3"
     on_press:
       - logger.log: "Scene 3 - launching automation"
-      - homeassistant.service:
-          service: script.turn_on
-          data:
-            entity_id: ${automation_scene_3}
+      - script.execute: script_next_page
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -1398,9 +1386,9 @@ font:
       - "\U000F0140"  # mdi:chevron-down
       # Streaming service icons
       - "\U000F0746"  # mdi:netflix
-      - "\U000F0AD4"  # mdi:movie-open (movie night)
       # Room quick action icons
-      - "\U000F05CF"  # mdi:party-popper (party mode)
+      - "\U000F0FCE"  # mdi:movie-open (movie night)
+      - "\U000F1056"  # mdi:party-popper (party mode)
       # Transport controls
       - "\U000F045F"  # mdi:rewind
       - "\U000F0211"  # mdi:fast-forward
