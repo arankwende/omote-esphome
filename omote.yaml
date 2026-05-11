@@ -155,13 +155,10 @@ esp32:
 # Note: GPIO08 (TCA8418 INT) is active-LOW (idle HIGH), incompatible with ANY_HIGH mode
 deep_sleep:
   id: deep_sleep_ctrl
-  touch_wakeup: True
-  wakeup_pin:
-    number: GPIO03
-#    allow_other_uses: true
-    inverted: true  # Wake on button press (LOW)
-    ignore_strapping_warning: true
-  wakeup_pin_mode: IGNORE
+  esp32_ext1_wakeup:
+    pins:
+      - GPIO02
+    mode: ANY_HIGH
 # PSRAM configuration - CRITICAL for LVGL display
 # The Omote uses ESP32-S3 with PSRAM
 psram:
@@ -954,6 +951,7 @@ script:
           id: device_sleeping
           value: 'true'
       - light.turn_off: back_light
+      - lambda: 'id(accel).clear_interrupt();'
       - delay: 200ms
 #      - logger.log:
 #          level: WARN
