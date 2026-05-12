@@ -158,6 +158,7 @@ deep_sleep:
   esp32_ext1_wakeup:
     pins:
       - GPIO02
+      - GPIO0  # TODO: set correct power button GPIO
     mode: ANY_HIGH
 # PSRAM configuration - CRITICAL for LVGL display
 # The Omote uses ESP32-S3 with PSRAM
@@ -603,7 +604,19 @@ binary_sensor:
       - light.turn_off: keypad_backlight
       # Clear the latched interrupt so it can trigger again
       - lambda: 'id(accel).clear_interrupt();'
-
+    # Power button GPIO (dedicated)
+    - platform: gpio
+      id: power_btn_gpio
+      name: "Power Button"
+      pin:
+        number: GPIO0  # TODO: update to actual pin
+        mode: INPUT_PULLUP
+      on_press:
+        - if:
+            condition:
+              lambda: 'return !id(device_sleeping).state;'
+            then:
+              - script.execute: script_enter_deep_sleep
   # ==================== TCA8418 MATRIX KEYPAD BUTTONS ====================
   #
   - platform: tca8418_keypad
@@ -958,6 +971,15 @@ script:
 #          format: ">>> DISCONNECTING WIFI <<<"
 #      - wifi.disable:
 #      - delay: 500ms
+interval:
+  - interval: 10s
+    then:
+      - lambda: |
+          if (id(is_nighttime).state && !id(device_sleeping).state) {
+            if (millis() - id(last_activity_time).state > 60000) {
+              id(script_enter_deep_sleep).execute();
+            }
+          }
       - logger.log:
           level: WARN
           format: ">>> ENTERING DEEP SLEEP NOW <<<"
@@ -1466,6 +1488,10 @@ lvgl:
   touchscreens:
     - my_touch
   buffer_size: 10%  # Reduced from 25% to help with memory pressure
+  on_touch:
+    - globals.set:
+        id: last_activity_time
+        value: '!lambda return millis();'
   on_idle:
     timeout: 120s
     then:
