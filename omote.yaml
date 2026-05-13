@@ -155,10 +155,15 @@ esp32:
 # Note: GPIO08 (TCA8418 INT) is active-LOW (idle HIGH), incompatible with ANY_HIGH mode
 deep_sleep:
   id: deep_sleep_ctrl
+  wakeup_pin:
+    number: GPIO08
+    inverted: true
+    mode: INPUT_PULLUP
+    allow_other_uses: true
   esp32_ext1_wakeup:
     pins:
-      - GPIO02
-      - GPIO0  # TODO: set correct power button GPIO
+      - number: GPIO02
+        allow_other_uses: true
     mode: ANY_HIGH
 # PSRAM configuration - CRITICAL for LVGL display
 # The Omote uses ESP32-S3 with PSRAM
@@ -584,6 +589,12 @@ text_sensor:
 #            - light.turn_on: back_light
 
 binary_sensor:
+  # Music player mute state
+  - platform: homeassistant
+    id: music_is_muted
+    entity_id: media_player.${ma_player}
+    attribute: is_volume_muted
+
   # LIS3DH motion interrupt on INT1 (GPIO02)
   # Goes HIGH when motion detected, cleared by reading INT1_SRC
   - platform: gpio
@@ -592,6 +603,7 @@ binary_sensor:
     pin:
       number: GPIO02
       mode: INPUT
+      allow_other_uses: true
     filters:
       - delayed_off: 100ms
     on_press:
@@ -604,19 +616,7 @@ binary_sensor:
       - light.turn_off: keypad_backlight
       # Clear the latched interrupt so it can trigger again
       - lambda: 'id(accel).clear_interrupt();'
-    # Power button GPIO (dedicated)
-    - platform: gpio
-      id: power_btn_gpio
-      name: "Power Button"
-      pin:
-        number: GPIO0  # TODO: update to actual pin
-        mode: INPUT_PULLUP
-      on_press:
-        - if:
-            condition:
-              lambda: 'return !id(device_sleeping).state;'
-            then:
-              - script.execute: script_enter_deep_sleep
+
   # ==================== TCA8418 MATRIX KEYPAD BUTTONS ====================
   #
   - platform: tca8418_keypad
@@ -815,7 +815,8 @@ binary_sensor:
                 service: media_player.volume_mute
                 data:
                   entity_id: media_player.${ma_player}
-                  is_volume_muted: "True"
+                data_template:
+                  is_volume_muted: '{{ not state_attr("media_player.${ma_player}", "is_volume_muted") }}'
 
   # Channel/Record Buttons - TV remote
   - platform: tca8418_keypad
@@ -907,8 +908,12 @@ binary_sensor:
     key: 102
     name: "Power Button"
     on_press:
-      - logger.log: "Power button pressed - entering deep sleep"
-      - script.execute: script_enter_deep_sleep
+      - if:
+          condition:
+            lambda: 'return millis() > 3000;'
+          then:
+            - logger.log: "Power button pressed - entering deep sleep"
+            - script.execute: script_enter_deep_sleep
 
 
 
@@ -971,15 +976,6 @@ script:
 #          format: ">>> DISCONNECTING WIFI <<<"
 #      - wifi.disable:
 #      - delay: 500ms
-interval:
-  - interval: 10s
-    then:
-      - lambda: |
-          if (id(is_nighttime).state && !id(device_sleeping).state) {
-            if (millis() - id(last_activity_time).state > 60000) {
-              id(script_enter_deep_sleep).execute();
-            }
-          }
       - logger.log:
           level: WARN
           format: ">>> ENTERING DEEP SLEEP NOW <<<"
@@ -1275,6 +1271,7 @@ tca8418_keypad:
   cols: 5
   interrupt_pin:
     number: 8
+    allow_other_uses: true
 
 output:
   # LCD Backlight GPIO
@@ -1488,20 +1485,16 @@ lvgl:
   touchscreens:
     - my_touch
   buffer_size: 10%  # Reduced from 25% to help with memory pressure
-  on_touch:
-    - globals.set:
-        id: last_activity_time
-        value: '!lambda return millis();'
   on_idle:
-    timeout: 120s
+    timeout: 60s
     then:
-      - logger.log: "LVGL idle - 2 minutes of inactivity"
+      - logger.log: "LVGL idle - 1 minute of inactivity"
       - if:
           condition:
             lambda: 'return id(is_nighttime);'
           then:
-            - logger.log: "Nighttime - turning off backlight"
-            - light.turn_off: back_light
+            - logger.log: "Nighttime - entering deep sleep"
+            - script.execute: script_enter_deep_sleep
   pages:
     # ==================== PAGE 1: ROOM CONTROL ====================
     - id: room_page
