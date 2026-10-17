@@ -1,0 +1,749 @@
+# OMOTE - music-assistant.yaml
+# Replaces the Home Assistant music parts of music.yaml with direct Music
+# Assistant API calls, and adds the speakers and queue popups.
+# Included from omote-music-assistant.yaml; ${ma_*} values are set there.
+
+esphome:
+  on_boot:
+    - priority: -200
+      then:
+        - lambda: |-
+            // Hide speaker slots that are not configured
+            const std::pair<lv_obj_t *, const char *> slots[] = {
+                {id(btn_ma_spk_1), "${ma_speaker_1_id}"}, {id(btn_ma_spk_2), "${ma_speaker_2_id}"},
+                {id(btn_ma_spk_3), "${ma_speaker_3_id}"}, {id(btn_ma_spk_4), "${ma_speaker_4_id}"}};
+            for (auto &s : slots) {
+              if (s.second[0] == '\0') lv_obj_add_flag(s.first, LV_OBJ_FLAG_HIDDEN);
+            }
+
+# http_request blocks the main loop while a request is in flight; keep the
+# timeout short so an unreachable MA server can't freeze the UI for long.
+http_request:
+  timeout: 4s
+
+# Remove the Home Assistant music entities from omote.yaml
+sensor:
+  - id: !remove music_volume
+
+binary_sensor:
+  - id: !remove music_muted
+
+text_sensor:
+  - id: !remove music_album
+  - id: !remove music_title
+  - id: !remove music_artist
+  - id: !remove music_state
+  - id: !remove music_album_art
+
+globals:
+  - id: ma_grouped
+    type: bool
+    initial_value: "false"
+  - id: ma_muted
+    type: bool
+    initial_value: "false"
+  # Current group members as ",id1,id2," for cheap membership checks
+  - id: ma_members
+    type: std::string
+    initial_value: '","'
+  - id: ma_art_url
+    type: std::string
+    initial_value: '""'
+  - id: ma_art_changed
+    type: bool
+    initial_value: "false"
+  # Queue state (shuffle / repeat / position), from player_queues/get
+  - id: ma_shuffle
+    type: bool
+    initial_value: "false"
+  - id: ma_repeat
+    type: std::string
+    initial_value: '"off"'
+  - id: ma_queue_index
+    type: int
+    initial_value: "-1"
+  # Skip polling until this millis() after an error (MA down / bad token)
+  - id: ma_backoff_until
+    type: uint32_t
+    initial_value: "0"
+
+script:
+  # ---- Replace the Home Assistant versions from omote.yaml ----
+  - id: !remove script_volume_up
+  - id: !remove script_volume_down
+  - id: !remove script_music_play_pause
+  - id: !remove script_music_next
+  - id: !remove script_music_prev
+  - id: !remove script_music_mute
+  - id: !remove script_music_set_volume
+  - id: !remove script_play_morning_playlist
+  - id: !remove script_play_evening_playlist
+
+  - id: script_volume_up
+    then:
+      - script.execute:
+          id: script_ma_command
+          command: !lambda 'return id(ma_grouped) ? "players/cmd/group_volume_up" : "players/cmd/volume_up";'
+          args: '{"player_id":"${ma_player_id}"}'
+
+  - id: script_volume_down
+    then:
+      - script.execute:
+          id: script_ma_command
+          command: !lambda 'return id(ma_grouped) ? "players/cmd/group_volume_down" : "players/cmd/volume_down";'
+          args: '{"player_id":"${ma_player_id}"}'
+
+  - id: script_music_play_pause
+    then:
+      - script.execute:
+          id: script_ma_command
+          command: players/cmd/play_pause
+          args: '{"player_id":"${ma_player_id}"}'
+
+  - id: script_music_next
+    then:
+      - script.execute:
+          id: script_ma_command
+          command: players/cmd/next
+          args: '{"player_id":"${ma_player_id}"}'
+
+  - id: script_music_prev
+    then:
+      - script.execute:
+          id: script_ma_command
+          command: players/cmd/previous
+          args: '{"player_id":"${ma_player_id}"}'
+
+  - id: script_music_mute
+    then:
+      - script.execute:
+          id: script_ma_command
+          command: !lambda 'return id(ma_grouped) ? "players/cmd/group_volume_mute" : "players/cmd/volume_mute";'
+          args: !lambda |-
+            return std::string("{\"player_id\":\"${ma_player_id}\",\"muted\":") +
+                   (id(ma_muted) ? "false" : "true") + "}";
+
+  - id: script_music_set_volume
+    parameters:
+      level: int
+    then:
+      - script.execute:
+          id: script_ma_command
+          command: !lambda 'return id(ma_grouped) ? "players/cmd/group_volume" : "players/cmd/volume_set";'
+          args: !lambda |-
+            return std::string("{\"player_id\":\"${ma_player_id}\",\"volume_level\":") +
+                   to_string(level) + "}";
+
+  - id: script_play_morning_playlist
+    then:
+      - script.execute:
+          id: script_ma_command
+          command: player_queues/play_media
+          args: '{"queue_id":"${ma_player_id}","media":"${ma_morning_playlist}","option":"replace"}'
+
+  - id: script_play_evening_playlist
+    then:
+      - script.execute:
+          id: script_ma_command
+          command: player_queues/play_media
+          args: '{"queue_id":"${ma_player_id}","media":"${ma_evening_playlist}","option":"replace"}'
+
+  # ---- Music Assistant API ----
+  # Send one command to MA's JSON-RPC endpoint (POST /api), then refresh state.
+  - id: script_ma_command
+    mode: queued
+    max_runs: 8
+    parameters:
+      command: string
+      args: string
+    then:
+      - http_request.post:
+          url: ${ma_url}/api
+          request_headers:
+            Authorization: "Bearer ${ma_token}"
+            Content-Type: application/json
+          body: !lambda 'return "{\"command\":\"" + command + "\",\"args\":" + args + "}";'
+          on_response:
+            - if:
+                condition:
+                  lambda: 'return response->status_code != 200;'
+                then:
+                  - logger.log:
+                      level: WARN
+                      format: "MA %s failed: HTTP %d"
+                      args: ['command.c_str()', 'response->status_code']
+          on_error:
+            - logger.log:
+                level: WARN
+                format: "MA %s: server unreachable"
+                args: ['command.c_str()']
+      - delay: 300ms
+      - script.execute: script_ma_poll
+      - if:
+          condition:
+            lambda: 'return !lv_obj_has_flag(id(ma_queue_popup), LV_OBJ_FLAG_HIDDEN);'
+          then:
+            - script.execute: script_ma_queue_poll
+
+  # Read this player's state and update the music page.
+  - id: script_ma_poll
+    mode: single
+    then:
+      - http_request.post:
+          url: ${ma_url}/api
+          request_headers:
+            Authorization: "Bearer ${ma_token}"
+            Content-Type: application/json
+          body: '{"command":"players/get","args":{"player_id":"${ma_player_id}"}}'
+          capture_response: true
+          # A full PlayerState is several kB
+          max_response_buffer_size: 32kB
+          on_response:
+            - lambda: |-
+                if (response->status_code != 200) {
+                  ESP_LOGW("ma", "players/get failed: HTTP %d", response->status_code);
+                  lv_label_set_text(id(lbl_music_title),
+                                    response->status_code == 401 ? "MA: invalid token" : "MA: player not found");
+                  id(ma_backoff_until) = millis() + 30000;
+                  return;
+                }
+                bool ok = json::parse_json(body, [](JsonObject root) -> bool {
+                  if (root.isNull()) return false;
+                  // Only touch labels when the text changed, so scrolling titles don't restart
+                  auto set_text = [](lv_obj_t *label, const char *text) {
+                    if (strcmp(lv_label_get_text(label), text) != 0) lv_label_set_text(label, text);
+                  };
+
+                  const char *state = root["playback_state"] | "idle";
+                  const bool playing = strcmp(state, "playing") == 0;
+                  id(music_playing) = playing;
+                  set_text(id(lbl_play_pause), playing ? "\U000F03E4" : "\U000F040A");
+                  std::string status = state;
+                  for (auto &c : status) c = toupper(c);
+                  set_text(id(lbl_music_status), status.c_str());
+                  lv_obj_set_style_text_color(id(lbl_music_status), lv_color_hex(playing ? 0x1DB954 : 0x888888),
+                                              LV_PART_MAIN);
+
+                  JsonArray members = root["group_members"].as<JsonArray>();
+                  std::string m = ",";
+                  for (JsonVariant v : members) {
+                    m += v.as<const char *>();
+                    m += ",";
+                  }
+                  id(ma_members) = m;
+                  id(ma_grouped) = members.size() > 1;
+
+                  const bool use_group = id(ma_grouped) && !root["group_volume"].isNull();
+                  const int vol = use_group ? root["group_volume"].as<int>() : (root["volume_level"] | 0);
+                  id(ma_muted) = use_group ? (root["group_volume_muted"] | false) : (root["volume_muted"] | false);
+                  set_text(id(lbl_music_mute), id(ma_muted) ? "\U000F0581" : "\U000F057E");
+                  if (!lv_obj_has_state(id(slider_volume), LV_STATE_PRESSED))
+                    lv_slider_set_value(id(slider_volume), vol, LV_ANIM_OFF);
+
+                  JsonObject media = root["current_media"];
+                  if (media.isNull()) {
+                    set_text(id(lbl_music_title), "No track");
+                    set_text(id(lbl_music_artist), "");
+                    set_text(id(lbl_music_album), "");
+                  } else {
+                    set_text(id(lbl_music_title), media["title"] | "");
+                    set_text(id(lbl_music_artist), media["artist"] | "");
+                    set_text(id(lbl_music_album), media["album"] | "");
+                    std::string img = media["image_url"] | "";
+                    // Ask MA's image proxy for a small JPEG (online_image is set to JPEG)
+                    const size_t proxy = img.find("/imageproxy/");
+                    if (proxy != std::string::npos) {
+                      img = img.substr(0, img.find('?')) + "?size=160&fmt=jpeg";
+                    }
+                    if (!img.empty() && img != id(ma_art_url)) {
+                      id(ma_art_url) = img;
+                      id(ma_art_changed) = true;
+                    }
+                  }
+
+                  // Speaker join buttons reflect group membership
+                  const std::pair<lv_obj_t *, const char *> slots[] = {
+                      {id(btn_ma_spk_1), "${ma_speaker_1_id}"}, {id(btn_ma_spk_2), "${ma_speaker_2_id}"},
+                      {id(btn_ma_spk_3), "${ma_speaker_3_id}"}, {id(btn_ma_spk_4), "${ma_speaker_4_id}"}};
+                  for (auto &s : slots) {
+                    if (s.second[0] == '\0') continue;
+                    if (m.find(std::string(",") + s.second + ",") != std::string::npos) {
+                      lv_obj_add_state(s.first, LV_STATE_CHECKED);
+                    } else {
+                      lv_obj_remove_state(s.first, LV_STATE_CHECKED);
+                    }
+                  }
+                  return true;
+                });
+                if (!ok) ESP_LOGW("ma", "Could not parse players/get response (%u bytes)", body.size());
+            - if:
+                condition:
+                  lambda: 'return id(ma_art_changed);'
+                then:
+                  - globals.set:
+                      id: ma_art_changed
+                      value: "false"
+                  - online_image.set_url:
+                      id: album_art
+                      url: !lambda 'return id(ma_art_url);'
+          on_error:
+            - lambda: |-
+                ESP_LOGW("ma", "Music Assistant unreachable at ${ma_url}");
+                lv_label_set_text(id(lbl_music_title), "Music Assistant offline");
+                id(ma_backoff_until) = millis() + 30000;
+
+  # Queue: shuffle / repeat / position, then the next 5 items (only while the
+  # queue popup is open, the item list is a larger response)
+  - id: script_ma_queue_poll
+    mode: single
+    then:
+      - http_request.post:
+          url: ${ma_url}/api
+          request_headers:
+            Authorization: "Bearer ${ma_token}"
+            Content-Type: application/json
+          body: '{"command":"player_queues/get","args":{"queue_id":"${ma_player_id}"}}'
+          capture_response: true
+          max_response_buffer_size: 32kB
+          on_response:
+            - lambda: |-
+                if (response->status_code != 200) {
+                  ESP_LOGW("ma", "player_queues/get failed: HTTP %d", response->status_code);
+                  return;
+                }
+                json::parse_json(body, [](JsonObject root) -> bool {
+                  if (root.isNull()) return false;
+                  id(ma_shuffle) = root["shuffle_enabled"] | false;
+                  id(ma_repeat) = std::string(root["repeat_mode"] | "off");
+                  id(ma_queue_index) = root["current_index"].isNull() ? -1 : root["current_index"].as<int>();
+                  if (id(ma_shuffle)) lv_obj_add_state(id(btn_ma_shuffle), LV_STATE_CHECKED);
+                  else lv_obj_remove_state(id(btn_ma_shuffle), LV_STATE_CHECKED);
+                  const std::string &r = id(ma_repeat);
+                  if (r == "off") lv_obj_remove_state(id(btn_ma_repeat), LV_STATE_CHECKED);
+                  else lv_obj_add_state(id(btn_ma_repeat), LV_STATE_CHECKED);
+                  lv_label_set_text(id(lbl_ma_repeat_icon),
+                                    r == "one" ? "\U000F0458" : (r == "all" ? "\U000F0456" : "\U000F0457"));
+                  lv_label_set_text(id(lbl_ma_repeat_text), r == "one" ? "One" : (r == "all" ? "All" : "Off"));
+                  return true;
+                });
+      - if:
+          condition:
+            lambda: 'return !lv_obj_has_flag(id(ma_queue_popup), LV_OBJ_FLAG_HIDDEN) && id(ma_queue_index) >= 0;'
+          then:
+            - http_request.post:
+                url: ${ma_url}/api
+                request_headers:
+                  Authorization: "Bearer ${ma_token}"
+                  Content-Type: application/json
+                body: !lambda |-
+                  return str_sprintf("{\"command\":\"player_queues/items\",\"args\":{\"queue_id\":\"${ma_player_id}\","
+                                     "\"limit\":5,\"offset\":%d}}", id(ma_queue_index) + 1);
+                capture_response: true
+                # queue items carry full track metadata
+                max_response_buffer_size: 96kB
+                on_response:
+                  - lambda: |-
+                      lv_obj_t *rows[] = {id(lbl_q_1), id(lbl_q_2), id(lbl_q_3), id(lbl_q_4), id(lbl_q_5)};
+                      for (auto *r : rows) lv_label_set_text(r, "");
+                      if (response->status_code != 200) return;
+                      JsonDocument doc = json::parse_json(body);
+                      JsonArray items = doc.as<JsonArray>();
+                      int i = 0;
+                      for (JsonVariant it : items) {
+                        if (i >= 5) break;
+                        lv_label_set_text(rows[i++], it["name"] | "");
+                      }
+                      lv_label_set_text(id(lbl_q_empty), i == 0 ? "Nothing queued" : "");
+      - if:
+          condition:
+            lambda: 'return !lv_obj_has_flag(id(ma_queue_popup), LV_OBJ_FLAG_HIDDEN) && id(ma_queue_index) < 0;'
+          then:
+            - lambda: |-
+                for (auto *r : {id(lbl_q_1), id(lbl_q_2), id(lbl_q_3), id(lbl_q_4), id(lbl_q_5)}) lv_label_set_text(r, "");
+                lv_label_set_text(id(lbl_q_empty), "Nothing queued");
+
+  - id: script_ma_toggle_shuffle
+    then:
+      - script.execute:
+          id: script_ma_command
+          command: player_queues/shuffle
+          args: !lambda |-
+            return std::string("{\"queue_id\":\"${ma_player_id}\",\"shuffle_enabled\":") +
+                   (id(ma_shuffle) ? "false" : "true") + "}";
+
+  # off -> all -> one -> off
+  - id: script_ma_cycle_repeat
+    then:
+      - script.execute:
+          id: script_ma_command
+          command: player_queues/repeat
+          args: !lambda |-
+            const std::string &r = id(ma_repeat);
+            const char *next = r == "off" ? "all" : (r == "all" ? "one" : "off");
+            return std::string("{\"queue_id\":\"${ma_player_id}\",\"repeat_mode\":\"") + next + "\"}";
+
+  # Join or unjoin a speaker to this player
+  - id: script_ma_toggle_speaker
+    parameters:
+      speaker_id: string
+    then:
+      - script.execute:
+          id: script_ma_command
+          command: players/cmd/set_members
+          args: !lambda |-
+            const bool member = id(ma_members).find("," + speaker_id + ",") != std::string::npos;
+            return std::string("{\"target_player\":\"${ma_player_id}\",\"") +
+                   (member ? "player_ids_to_remove" : "player_ids_to_add") + "\":[\"" + speaker_id + "\"]}";
+
+# Poll MA every 3s while the music page is visible (not while the screen is
+# off or asleep), backing off for 30s after an error.
+interval:
+  - interval: 3s
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return !id(device_sleeping) && id(screen_state) != 2 && id(current_page) == 1 &&
+                     (int32_t) (millis() - id(ma_backoff_until)) >= 0;
+          then:
+            - script.execute: script_ma_poll
+            - if:
+                condition:
+                  lambda: 'return !lv_obj_has_flag(id(ma_queue_popup), LV_OBJ_FLAG_HIDDEN);'
+                then:
+                  - script.execute: script_ma_queue_poll
+
+font:
+  - id: !extend mdi_20
+    glyphs:
+      - "\U000F0D38"  # mdi:speaker-multiple
+      - "\U000F012C"  # mdi:check
+      - "\U000F0CB8"  # mdi:playlist-music
+      - "\U000F049F"  # mdi:shuffle-variant
+      - "\U000F0456"  # mdi:repeat
+      - "\U000F0457"  # mdi:repeat-off
+      - "\U000F0458"  # mdi:repeat-once
+
+lvgl:
+  pages:
+    - id: !extend music_page
+      on_load:
+        - script.execute: script_ma_poll
+      on_unload:
+        - lvgl.widget.hide: [ma_speakers_popup, ma_queue_popup]
+      widgets:
+        # Tap the now-playing card for the queue (shuffle / repeat / up next)
+        - obj:
+            id: !extend card_music
+            on_click:
+              - lvgl.widget.show: ma_queue_popup
+              - script.execute: script_ma_queue_poll
+            widgets:
+              - label:
+                  x: 204
+                  y: 4
+                  text_font: mdi_20
+                  text: "\U000F0CB8"
+                  text_color: 0x888888
+        # Replace the static "volume high" icon with the speakers button
+        - label:
+            id: !remove lbl_volume_high_icon
+        - button:
+            id: btn_ma_speakers
+            x: 200
+            y: 228
+            width: 36
+            height: 36
+            radius: 18
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0D38"
+                  text_color: 0x1DB954
+            on_click:
+              - lvgl.widget.show: ma_speakers_popup
+              - script.execute: script_ma_poll
+
+        # ===== SPEAKERS POPUP =====
+        - obj:
+            id: ma_speakers_popup
+            x: 0
+            y: 0
+            width: 240
+            height: 320
+            bg_color: 0x000000
+            bg_opa: 85%
+            border_width: 0
+            radius: 0
+            pad_all: 0
+            hidden: true
+            # tap outside the panel to close
+            on_click:
+              - lvgl.widget.hide: ma_speakers_popup
+            widgets:
+              - obj:
+                  align: center
+                  y: 12
+                  width: 220
+                  height: 276
+                  bg_color: 0x222222
+                  radius: 15
+                  border_width: 0
+                  pad_all: 0
+                  scrollable: false
+                  widgets:
+                    - label:
+                        x: 16
+                        y: 16
+                        width: 130
+                        text_font: roboto_18
+                        text: "Speakers"
+                        text_color: 0xFFFFFF
+                    - button:
+                        x: 172
+                        y: 8
+                        width: 40
+                        height: 40
+                        bg_color: 0x444444
+                        radius: 20
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_18
+                              text: "X"
+                              text_color: 0xFFFFFF
+                        on_click:
+                          - lvgl.widget.hide: ma_speakers_popup
+                    - button:
+                        id: btn_ma_spk_1
+                        x: 12
+                        y: 56
+                        width: 196
+                        height: 44
+                        bg_color: 0x333333
+                        checkable: true
+                        checked:
+                          bg_color: 0x1DB954
+                        widgets:
+                          - label:
+                              align: left_mid
+                              x: 6
+                              text_font: roboto_14
+                              text: "${ma_speaker_1_name}"
+                              text_color: 0xFFFFFF
+                        on_click:
+                          - script.execute:
+                              id: script_ma_toggle_speaker
+                              speaker_id: "${ma_speaker_1_id}"
+                    - button:
+                        id: btn_ma_spk_2
+                        x: 12
+                        y: 108
+                        width: 196
+                        height: 44
+                        bg_color: 0x333333
+                        checkable: true
+                        checked:
+                          bg_color: 0x1DB954
+                        widgets:
+                          - label:
+                              align: left_mid
+                              x: 6
+                              text_font: roboto_14
+                              text: "${ma_speaker_2_name}"
+                              text_color: 0xFFFFFF
+                        on_click:
+                          - script.execute:
+                              id: script_ma_toggle_speaker
+                              speaker_id: "${ma_speaker_2_id}"
+                    - button:
+                        id: btn_ma_spk_3
+                        x: 12
+                        y: 160
+                        width: 196
+                        height: 44
+                        bg_color: 0x333333
+                        checkable: true
+                        checked:
+                          bg_color: 0x1DB954
+                        widgets:
+                          - label:
+                              align: left_mid
+                              x: 6
+                              text_font: roboto_14
+                              text: "${ma_speaker_3_name}"
+                              text_color: 0xFFFFFF
+                        on_click:
+                          - script.execute:
+                              id: script_ma_toggle_speaker
+                              speaker_id: "${ma_speaker_3_id}"
+                    - button:
+                        id: btn_ma_spk_4
+                        x: 12
+                        y: 212
+                        width: 196
+                        height: 44
+                        bg_color: 0x333333
+                        checkable: true
+                        checked:
+                          bg_color: 0x1DB954
+                        widgets:
+                          - label:
+                              align: left_mid
+                              x: 6
+                              text_font: roboto_14
+                              text: "${ma_speaker_4_name}"
+                              text_color: 0xFFFFFF
+                        on_click:
+                          - script.execute:
+                              id: script_ma_toggle_speaker
+                              speaker_id: "${ma_speaker_4_id}"
+
+        # ===== QUEUE POPUP (tap the now-playing card) =====
+        - obj:
+            id: ma_queue_popup
+            x: 0
+            y: 0
+            width: 240
+            height: 320
+            bg_color: 0x000000
+            bg_opa: 85%
+            border_width: 0
+            radius: 0
+            pad_all: 0
+            hidden: true
+            on_click:
+              - lvgl.widget.hide: ma_queue_popup
+            widgets:
+              - obj:
+                  align: center
+                  y: 12
+                  width: 220
+                  height: 276
+                  bg_color: 0x222222
+                  radius: 15
+                  border_width: 0
+                  pad_all: 0
+                  scrollable: false
+                  widgets:
+                    - label:
+                        x: 16
+                        y: 16
+                        text_font: roboto_18
+                        text: "Up next"
+                    - button:
+                        x: 172
+                        y: 8
+                        width: 40
+                        height: 40
+                        radius: 20
+                        bg_color: 0x444444
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_18
+                              text: "X"
+                        on_click:
+                          - lvgl.widget.hide: ma_queue_popup
+                    - button:
+                        id: btn_ma_shuffle
+                        x: 12
+                        y: 56
+                        width: 94
+                        height: 42
+                        bg_color: 0x333333
+                        checked:
+                          bg_color: 0x1DB954
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: left_mid
+                              text_font: mdi_20
+                              text: "\U000F049F"
+                          - label:
+                              align: left_mid
+                              x: 26
+                              text_font: roboto_14
+                              text: "Shuffle"
+                        on_click:
+                          - script.execute: script_ma_toggle_shuffle
+                    - button:
+                        id: btn_ma_repeat
+                        x: 114
+                        y: 56
+                        width: 94
+                        height: 42
+                        bg_color: 0x333333
+                        checked:
+                          bg_color: 0x1DB954
+                        scrollable: false
+                        widgets:
+                          - label:
+                              id: lbl_ma_repeat_icon
+                              align: left_mid
+                              text_font: mdi_20
+                              text: "\U000F0457"
+                          - label:
+                              id: lbl_ma_repeat_text
+                              align: left_mid
+                              x: 26
+                              text_font: roboto_14
+                              text: "Off"
+                        on_click:
+                          - script.execute: script_ma_cycle_repeat
+                    - label:
+                        id: lbl_q_empty
+                        x: 16
+                        y: 112
+                        text_font: roboto_14
+                        text: "Loading..."
+                        text_color: 0x888888
+                    - label:
+                        id: lbl_q_1
+                        x: 16
+                        y: 112
+                        width: 190
+                        long_mode: dot
+                        text_font: roboto_14
+                        text: ""
+                        text_color: 0xFFFFFF
+                    - label:
+                        id: lbl_q_2
+                        x: 16
+                        y: 144
+                        width: 190
+                        long_mode: dot
+                        text_font: roboto_14
+                        text: ""
+                        text_color: 0xBBBBBB
+                    - label:
+                        id: lbl_q_3
+                        x: 16
+                        y: 176
+                        width: 190
+                        long_mode: dot
+                        text_font: roboto_14
+                        text: ""
+                        text_color: 0xBBBBBB
+                    - label:
+                        id: lbl_q_4
+                        x: 16
+                        y: 208
+                        width: 190
+                        long_mode: dot
+                        text_font: roboto_14
+                        text: ""
+                        text_color: 0xBBBBBB
+                    - label:
+                        id: lbl_q_5
+                        x: 16
+                        y: 240
+                        width: 190
+                        long_mode: dot
+                        text_font: roboto_14
+                        text: ""
+                        text_color: 0xBBBBBB

@@ -1,0 +1,420 @@
+# OMOTE - music.yaml
+# Music page via Home Assistant media_player (see music-assistant.yaml for the MA version).
+# Included from omote.yaml; all ${...} values are set there.
+
+image:
+  - platform: online_image
+    id: album_art
+    url: "https://via.placeholder.com/100"
+    format: JPEG
+    type: RGB565
+    resize: 100x100
+    on_download_finished:
+      - logger.log: "Album art downloaded OK"
+      - lvgl.image.update:
+          id: img_album_art
+          src: album_art
+      - lvgl.widget.redraw:
+    on_error:
+      - logger.log:
+          level: WARN
+          format: "Album art download FAILED"
+
+sensor:
+  - platform: homeassistant
+    id: music_volume
+    entity_id: media_player.${ma_player}
+    attribute: volume_level
+    on_value:
+      - lvgl.slider.update:
+          id: slider_volume
+          value: !lambda 'return (int)(x * 100);'
+
+text_sensor:
+  # Music Assistant player info
+  - platform: homeassistant
+    id: music_title
+    entity_id: media_player.${ma_player}
+    attribute: media_title
+    on_value:
+      - lvgl.label.update:
+          id: lbl_music_title
+          text: !lambda 'return x;'
+  - platform: homeassistant
+    id: music_artist
+    entity_id: media_player.${ma_player}
+    attribute: media_artist
+    on_value:
+      - lvgl.label.update:
+          id: lbl_music_artist
+          text: !lambda 'return x;'
+  - platform: homeassistant
+    id: music_album
+    entity_id: media_player.${ma_player}
+    attribute: media_album_name
+    on_value:
+      - lvgl.label.update:
+          id: lbl_music_album
+          text: !lambda 'return x;'
+  - platform: homeassistant
+    id: music_state
+    entity_id: media_player.${ma_player}
+    on_value:
+      - if:
+          condition:
+            lambda: 'return x == "playing";'
+          then:
+            - lvgl.label.update:
+                id: lbl_play_pause
+                text: "\U000F03E4"
+            - globals.set:
+                id: music_playing
+                value: 'true'
+          else:
+            - lvgl.label.update:
+                id: lbl_play_pause
+                text: "\U000F040A"
+            - globals.set:
+                id: music_playing
+                value: 'false'
+      - script.execute:
+          id: set_music_status
+          state: !lambda 'return x;'
+  - platform: homeassistant
+    id: music_album_art
+    entity_id: media_player.${ma_player}
+    attribute: entity_picture
+    on_value:
+      - if:
+          condition:
+            lambda: 'return !x.empty();'
+          then:
+            - logger.log:
+                level: DEBUG
+                format: "Album art URL: %s"
+                args: ['x.c_str()']
+            - online_image.set_url:
+                id: album_art
+                # Handle both relative (/api/...) and absolute (http://...) URLs
+                url: !lambda |-
+                  if (x.rfind("http", 0) == 0) return x;
+                  return std::string("${ha_url}") + x;
+
+binary_sensor:
+  # Music player mute state (drives the mute button icon on the music page)
+  - platform: homeassistant
+    id: music_muted
+    entity_id: media_player.${ma_player}
+    attribute: is_volume_muted
+    on_state:
+      - lvgl.label.update:
+          id: lbl_music_mute
+          text: !lambda 'return std::string(x ? "\U000F0581" : "\U000F057E");'
+
+globals:
+  - id: music_playing
+    type: bool
+    initial_value: "false"
+
+script:
+  # Music status caption: PLAYING / PAUSED / IDLE ...
+  - id: set_music_status
+    parameters:
+      state: string
+    then:
+      - lambda: |-
+          const bool playing = state == "playing";
+          std::string txt = state.empty() ? "--" : state;
+          for (auto &c : txt) c = toupper(c);
+          lv_label_set_text(id(lbl_music_status), txt.c_str());
+          lv_obj_set_style_text_color(id(lbl_music_status), lv_color_hex(playing ? 0x1DB954 : 0x888888), LV_PART_MAIN);
+
+  - id: script_volume_up
+    then:
+      - homeassistant.action:
+          action: media_player.volume_up
+          data:
+            entity_id: media_player.${ma_player}
+
+  - id: script_volume_down
+    then:
+      - homeassistant.action:
+          action: media_player.volume_down
+          data:
+            entity_id: media_player.${ma_player}
+
+  # Music control scripts (via Home Assistant media_player services).
+  # omote-music-assistant.yaml replaces these with direct Music Assistant calls.
+  - id: script_music_mute
+    then:
+      - homeassistant.action:
+          action: media_player.volume_mute
+          data:
+            entity_id: media_player.${ma_player}
+            # toggle
+            is_volume_muted: !lambda 'return id(music_muted).state ? "false" : "true";'
+
+  - id: script_music_set_volume
+    parameters:
+      level: int
+    then:
+      - homeassistant.action:
+          action: media_player.volume_set
+          data:
+            entity_id: media_player.${ma_player}
+            volume_level: !lambda 'return level / 100.0f;'
+
+  - id: script_music_play_pause
+    then:
+      - homeassistant.action:
+          action: media_player.media_play_pause
+          data:
+            entity_id: media_player.${ma_player}
+
+  - id: script_music_next
+    then:
+      - homeassistant.action:
+          action: media_player.media_next_track
+          data:
+            entity_id: media_player.${ma_player}
+
+  - id: script_music_prev
+    then:
+      - homeassistant.action:
+          action: media_player.media_previous_track
+          data:
+            entity_id: media_player.${ma_player}
+
+  # Playlist quick-play scripts
+  - id: script_play_morning_playlist
+    then:
+      - homeassistant.action:
+          action: media_player.play_media
+          data:
+            entity_id: media_player.${ma_player}
+            media_content_id: "${ma_morning_playlist}"
+            media_content_type: "music"
+
+  - id: script_play_evening_playlist
+    then:
+      - homeassistant.action:
+          action: media_player.play_media
+          data:
+            entity_id: media_player.${ma_player}
+            media_content_id: "${ma_evening_playlist}"
+            media_content_type: "music"
+
+lvgl:
+  pages:
+    # ==================== PAGE 2: MUSIC ====================
+    - id: music_page
+      bg_color: 0x000000
+      on_load:
+        - script.execute:
+            id: script_page_loaded
+            page: 1
+      on_swipe_left:
+        - script.execute: script_next_page
+      on_swipe_right:
+        - script.execute: script_prev_page
+      widgets:
+        # ===== NOW PLAYING CARD =====
+        - obj:
+            id: card_music
+            x: 5
+            y: 32
+            width: 230
+            height: 112
+            bg_color: 0x1A1A1A
+            radius: 12
+            border_width: 0
+            pad_all: 0
+            scrollable: false
+            widgets:
+              # Placeholder shown until artwork has been downloaded
+              - obj:
+                  x: 6
+                  y: 6
+                  width: 100
+                  height: 100
+                  bg_color: 0x2A2A2A
+                  radius: 6
+                  border_width: 0
+                  scrollable: false
+                  widgets:
+                    - label:
+                        align: center
+                        text_font: mdi_36
+                        text: "\U000F0387"
+                        text_color: 0x555555
+              - image:
+                  id: img_album_art
+                  x: 6
+                  y: 6
+                  src: album_art
+              - label:
+                  id: lbl_music_status
+                  x: 114
+                  y: 8
+                  width: 110
+                  text_font: roboto_12
+                  text: "--"
+                  text_color: 0x888888
+              - label:
+                  id: lbl_music_title
+                  x: 114
+                  y: 26
+                  width: 110
+                  text_font: roboto_18
+                  text: "No track"
+                  text_color: 0xFFFFFF
+                  long_mode: scroll_circular
+              - label:
+                  id: lbl_music_artist
+                  x: 114
+                  y: 54
+                  width: 110
+                  text_font: roboto_14
+                  text: ""
+                  text_color: 0xBBBBBB
+                  long_mode: dot
+              - label:
+                  id: lbl_music_album
+                  x: 114
+                  y: 76
+                  width: 110
+                  text_font: roboto_12
+                  text: ""
+                  text_color: 0x777777
+                  long_mode: dot
+
+        # ===== TRANSPORT CONTROLS =====
+        - button:
+            id: btn_prev
+            x: 18
+            y: 156
+            width: 58
+            height: 58
+            radius: 29
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_36
+                  text: "\U000F04AE"
+            on_click:
+              - script.execute: script_music_prev
+        - button:
+            id: btn_play_pause
+            x: 83
+            y: 148
+            width: 74
+            height: 74
+            radius: 37
+            bg_color: 0x1DB954
+            scrollable: false
+            widgets:
+              - label:
+                  id: lbl_play_pause
+                  align: center
+                  text_font: mdi_36
+                  text: "\U000F040A"
+            on_click:
+              - script.execute: script_music_play_pause
+        - button:
+            id: btn_next
+            x: 164
+            y: 156
+            width: 58
+            height: 58
+            radius: 29
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_36
+                  text: "\U000F04AD"
+            on_click:
+              - script.execute: script_music_next
+
+        # ===== VOLUME: mute toggle + slider =====
+        - button:
+            id: btn_music_mute
+            x: 4
+            y: 228
+            width: 36
+            height: 36
+            radius: 18
+            scrollable: false
+            widgets:
+              - label:
+                  id: lbl_music_mute
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F057E"
+            on_click:
+              - script.execute: script_music_mute
+        - slider:
+            id: slider_volume
+            x: 50
+            y: 236
+            width: 146
+            height: 20
+            min_value: 0
+            max_value: 100
+            value: 0
+            on_release:
+              - script.execute:
+                  id: script_music_set_volume
+                  level: !lambda 'return (int) x;'
+        - label:
+            id: lbl_volume_high_icon
+            x: 210
+            y: 236
+            text_font: mdi_20
+            text: "\U000F057E"
+            text_color: 0x1DB954
+
+        # ===== PLAYLIST QUICK-PLAY =====
+        - button:
+            id: btn_morning_playlist
+            x: 5
+            y: 272
+            width: 112
+            height: 42
+            bg_color: 0xE67E22
+            scrollable: false
+            widgets:
+              - label:
+                  align: left_mid
+                  x: 4
+                  text_font: mdi_20
+                  text: "\U000F0599"
+              - label:
+                  align: left_mid
+                  x: 30
+                  text_font: roboto_14
+                  text: "${ma_morning_name}"
+            on_click:
+              - script.execute: script_play_morning_playlist
+        - button:
+            id: btn_evening_playlist
+            x: 123
+            y: 272
+            width: 112
+            height: 42
+            bg_color: 0x5C4DB1
+            scrollable: false
+            widgets:
+              - label:
+                  align: left_mid
+                  x: 4
+                  text_font: mdi_20
+                  text: "\U000F0594"
+              - label:
+                  align: left_mid
+                  x: 30
+                  text_font: roboto_14
+                  text: "${ma_evening_name}"
+            on_click:
+              - script.execute: script_play_evening_playlist

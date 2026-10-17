@@ -1,0 +1,262 @@
+# OMOTE - settings.yaml
+# Settings page and the user-adjustable settings entities.
+# Included from omote.yaml; all ${...} values are set there.
+
+script:
+  # Push current setting values into the Settings page widgets (#8)
+  - id: script_settings_sync
+    then:
+      - if:
+          condition:
+            lambda: 'return id(boot_done);'
+          then:
+            - lvgl.slider.update:
+                id: slider_cfg_brightness
+                value: !lambda 'return id(cfg_brightness).state;'
+            - lvgl.dropdown.update:
+                id: dd_sleep
+                selected_index: !lambda |-
+                  const float t = id(cfg_sleep_timeout).state;
+                  return t <= 30 ? 0 : t <= 60 ? 1 : t <= 120 ? 2 : t <= 300 ? 3 : 4;
+            - lvgl.dropdown.update:
+                id: dd_motion
+                selected_index: !lambda |-
+                  const auto o = id(cfg_motion_sensitivity).current_option();
+                  return o == "Low" ? 0 : (o == "High" ? 2 : 1);
+            - lvgl.widget.update:
+                id: sw_lift
+                state:
+                  checked: !lambda 'return id(lift_to_wake).state;'
+            - script.execute: script_settings_info
+
+  - id: script_settings_info
+    then:
+      - if:
+          condition:
+            lambda: 'return id(boot_done);'
+          then:
+            - lambda: |-
+                const float lvl = id(battery_level).state, v = id(battery_voltage).state;
+                std::string b = std::isnan(lvl) ? std::string("Battery --")
+                                                : str_sprintf("Battery %d%%  -  %.2f V", (int) lvl, v);
+                if (id(battery_charging).state) b += "  -  charging";
+                lv_label_set_text(id(lbl_info_battery), b.c_str());
+                const float d = id(battery_runtime).state;
+                std::string r = id(battery_charging).state ? std::string("Estimate: charging")
+                              : std::isnan(d) ? std::string("Estimate: measuring...")
+                              : d >= 2 ? str_sprintf("Estimate: ~%d days left", (int) lroundf(d))
+                                       : str_sprintf("Estimate: ~%d hours left", (int) lroundf(d * 24));
+                lv_label_set_text(id(lbl_info_runtime), r.c_str());
+                const float rssi = id(wifi_rssi).state;
+                std::string w = std::isnan(rssi) ? std::string("WiFi --") : str_sprintf("WiFi %d dBm", (int) rssi);
+                lv_label_set_text(id(lbl_info_wifi), w.c_str());
+
+lvgl:
+  pages:
+    # ==================== PAGE 4: SETTINGS ====================
+    - id: settings_page
+      bg_color: 0x000000
+      on_load:
+        - script.execute:
+            id: script_page_loaded
+            page: 3
+        - script.execute: script_settings_sync
+      on_swipe_left:
+        - script.execute: script_next_page
+      on_swipe_right:
+        - script.execute: script_prev_page
+      widgets:
+        - label:
+            x: 10
+            y: 34
+            text_font: roboto_18
+            text: "Settings"
+        # Screen brightness (daytime; night uses screen_night_brightness)
+        - label:
+            x: 10
+            y: 72
+            text_font: roboto_14
+            text: "Brightness"
+        - slider:
+            id: slider_cfg_brightness
+            x: 112
+            y: 74
+            width: 116
+            height: 16
+            min_value: 10
+            max_value: 100
+            on_release:
+              - number.set:
+                  id: cfg_brightness
+                  value: !lambda 'return x;'
+        # Sleep timeout
+        - label:
+            x: 10
+            y: 114
+            text_font: roboto_14
+            text: "Sleep after"
+        - dropdown:
+            id: dd_sleep
+            x: 120
+            y: 104
+            width: 110
+            options:
+              - "30 s"
+              - "1 min"
+              - "2 min"
+              - "5 min"
+              - "10 min"
+            on_value:
+              - number.set:
+                  id: cfg_sleep_timeout
+                  value: !lambda |-
+                    static const float secs[] = {30, 60, 120, 300, 600};
+                    return secs[std::min<int>(x, 4)];
+        # Lift to wake
+        - label:
+            x: 10
+            y: 158
+            text_font: roboto_14
+            text: "Lift to wake"
+        - switch:
+            id: sw_lift
+            x: 176
+            y: 152
+            width: 52
+            height: 28
+            indicator:
+              checked:
+                bg_color: 0x1DB954
+            on_value:
+              - if:
+                  condition:
+                    lambda: 'return x;'
+                  then:
+                    - switch.turn_on: lift_to_wake
+                  else:
+                    - switch.turn_off: lift_to_wake
+        - label:
+            x: 10
+            y: 200
+            text_font: roboto_14
+            text: "Sensitivity"
+        - dropdown:
+            id: dd_motion
+            x: 120
+            y: 190
+            width: 110
+            options:
+              - "Low"
+              - "Medium"
+              - "High"
+            on_value:
+              - select.set_index:
+                  id: cfg_motion_sensitivity
+                  index: !lambda 'return x;'
+        # Info
+        - obj:
+            x: 5
+            y: 240
+            width: 230
+            height: 74
+            bg_color: 0x1A1A1A
+            radius: 12
+            border_width: 0
+            pad_all: 0
+            scrollable: false
+            widgets:
+              - label:
+                  id: lbl_info_battery
+                  x: 10
+                  y: 8
+                  width: 212
+                  long_mode: dot
+                  text_font: roboto_14
+                  text: "Battery --"
+              - label:
+                  id: lbl_info_runtime
+                  x: 10
+                  y: 30
+                  width: 212
+                  text_font: roboto_12
+                  text: "Estimate: measuring..."
+                  text_color: 0xAAAAAA
+              - label:
+                  id: lbl_info_wifi
+                  x: 10
+                  y: 50
+                  width: 212
+                  text_font: roboto_12
+                  text: "WiFi --"
+                  text_color: 0xAAAAAA
+
+switch:
+  # Wake from deep sleep when the remote is picked up (#5)
+  - platform: template
+    id: lift_to_wake
+    name: "Lift to Wake"
+    icon: mdi:hand-back-right
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+    on_turn_on:
+      - script.execute: script_settings_sync
+    on_turn_off:
+      - script.execute: script_settings_sync
+
+# ===== User settings (#5, #8): adjustable from HA and from the Settings page =====
+number:
+  - platform: template
+    id: cfg_sleep_timeout
+    name: "Sleep Timeout"
+    icon: mdi:sleep
+    unit_of_measurement: s
+    min_value: 20
+    max_value: 600
+    step: 10
+    optimistic: true
+    restore_value: true
+    initial_value: ${sleep_timeout}
+    entity_category: config
+    on_value:
+      - script.execute: script_settings_sync
+  - platform: template
+    id: cfg_brightness
+    name: "Screen Brightness"
+    icon: mdi:brightness-6
+    unit_of_measurement: "%"
+    min_value: 10
+    max_value: 100
+    step: 5
+    optimistic: true
+    restore_value: true
+    initial_value: 100
+    entity_category: config
+    on_value:
+      - script.execute: script_settings_sync
+      # apply right away if the screen is fully on
+      - if:
+          condition:
+            lambda: 'return id(boot_done) && id(screen_state) == 0 && !id(is_nighttime);'
+          then:
+            - light.turn_on:
+                id: back_light
+                brightness: !lambda 'return x / 100.0f;'
+
+select:
+  # Lift-to-wake sensitivity = LIS3DH INT1 threshold (16mg/LSB at +/-2g)
+  - platform: template
+    id: cfg_motion_sensitivity
+    name: "Lift to Wake Sensitivity"
+    icon: mdi:gesture-tap-hold
+    options: ["Low", "Medium", "High"]
+    initial_option: "Medium"
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    on_value:
+      - lambda: |-
+          const uint8_t ths = x == "Low" ? 32 : (x == "High" ? 8 : 16);
+          id(accel).set_threshold(ths);
+          id(accel).enable_motion_interrupt();
+      - script.execute: script_settings_sync

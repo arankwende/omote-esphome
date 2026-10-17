@@ -1,0 +1,370 @@
+# OMOTE - ui.yaml
+# LVGL theme, shared status bar, toast, page navigation, fonts.
+# Included from omote.yaml; all ${...} values are set there.
+
+sensor:
+  # Outdoor temperature from weather entity
+  - platform: homeassistant
+    id: outdoor_temperature
+    entity_id: ${weather_entity}
+    attribute: temperature
+    on_value:
+      - lvgl.label.update:
+          id: lbl_outdoor_temp
+          text:
+            format: "%.0f°"
+            args: ['x']
+
+text_sensor:
+  # Weather condition from weather entity
+  - platform: homeassistant
+    id: weather_condition
+    entity_id: ${weather_entity}
+    on_value:
+      - lambda: |-
+          // Map weather conditions to MDI icons
+          std::string icon = "\U000F0599"; // default sunny
+          if (x == "cloudy") icon = "\U000F0595";
+          else if (x == "partlycloudy") icon = "\U000F067E";
+          else if (x == "rainy") icon = "\U000F0598";
+          else if (x == "pouring") icon = "\U000F0597";
+          else if (x == "snowy") icon = "\U000F059D";
+          else if (x == "fog") icon = "\U000F0591";
+          else if (x == "windy") icon = "\U000F059E";
+          else if (x == "lightning" || x == "lightning-rainy") icon = "\U000F0593";
+          else if (x == "sunny" || x == "clear-night") icon = "\U000F0599";
+
+          // Update all weather icons using LVGL C API
+          lv_label_set_text(id(lbl_weather), icon.c_str());
+
+globals:
+  - id: current_page
+    type: int
+    initial_value: "1"
+  - id: touch_x_start
+    type: int
+    initial_value: "0"
+  - id: touch_y_start
+    type: int
+    initial_value: "0"
+  - id: touch_x_end
+    type: int
+    initial_value: "0"
+  - id: touch_y_end
+    type: int
+    initial_value: "0"
+  # Last page shown, restored on wake (#7). Only saved after boot so the page
+  # LVGL loads first during startup doesn't overwrite it.
+  - id: saved_page
+    type: int
+    restore_value: true
+    initial_value: "1"
+  - id: boot_done
+    type: bool
+    initial_value: "false"
+
+script:
+  # Page indicator dots + current_page (called from each page's on_load)
+  - id: script_page_loaded
+    parameters:
+      page: int
+    then:
+      - globals.set:
+          id: current_page
+          value: !lambda 'return page;'
+      - lambda: |-
+          if (id(boot_done) && id(saved_page) != page) id(saved_page) = page;
+          lv_obj_t *dots[] = {id(dot_page_0), id(dot_page_1), id(dot_page_2), id(dot_page_3)};
+          for (int i = 0; i < 4; i++)
+            lv_obj_set_style_bg_color(dots[i], lv_color_hex(i == page ? 0xFFFFFF : 0x555555), LV_PART_MAIN);
+
+  # Short pill at the bottom of the screen confirming what a physical key did.
+  # Turns red when the action can't work right now (no WiFi / HA offline).
+  - id: script_toast
+    mode: restart
+    parameters:
+      text: string
+      needs: int  # 0 = works offline (IR), 1 = needs WiFi, 2 = needs Home Assistant
+    then:
+      - lambda: |-
+          std::string msg = text;
+          uint32_t bg = 0x333333;
+          if (needs >= 1 && !wifi::global_wifi_component->is_connected()) {
+            msg = "No WiFi: " + text;
+            bg = 0xB71C1C;
+          } else if (needs >= 2 && !api::global_api_server->is_connected()) {
+            msg = "HA offline: " + text;
+            bg = 0xB71C1C;
+          }
+          lv_label_set_text(id(lbl_toast), msg.c_str());
+          lv_obj_set_style_bg_color(id(toast), lv_color_hex(bg), LV_PART_MAIN);
+          lv_obj_remove_flag(id(toast), LV_OBJ_FLAG_HIDDEN);
+      - delay: 1200ms
+      - lvgl.widget.hide: toast
+
+  # Grey out Home Assistant-driven values while they may be stale (#3)
+  - id: script_set_stale
+    parameters:
+      stale: bool
+    then:
+      - lambda: |-
+          const lv_opa_t opa = stale ? LV_OPA_40 : LV_OPA_COVER;
+          lv_obj_t *widgets[] = {id(card_climate), id(btn_light), id(btn_blinds_left), id(btn_blinds_right),
+                                 id(card_tv), ${music_needs} == 2 ? (lv_obj_t *) id(card_music) : nullptr};
+          for (auto *w : widgets)
+            if (w != nullptr) lv_obj_set_style_opa(w, opa, LV_PART_MAIN);
+
+  - id: script_update_clock
+    then:
+      - lvgl.label.update:
+          id: lbl_time
+          text: !lambda 'return id(homeassistant_time).now().strftime("%H:%M");'
+
+  # Page navigation scripts (3 pages: room, music, tv)
+  - id: script_next_page
+    then:
+      - lvgl.page.next:
+          animation: MOVE_LEFT
+          time: 300ms
+
+  - id: script_prev_page
+    then:
+      - lvgl.page.previous:
+          animation: MOVE_RIGHT
+          time: 300ms
+
+font:
+  - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
+    id: mdi_20
+    size: 20
+    bpp: 4
+    glyphs:
+      - "\U000F092F"  # mdi:wifi-outline
+      - "\U000F0928"  # mdi:wifi (filled)
+      - "\U000F0238"  # mdi:thermometer
+      - "\U000F0335"  # mdi:lightbulb
+      - "\U000F0336"  # mdi:lightbulb-outline
+      - "\U000F0054"  # mdi:air-conditioner
+      - "\U000F0F55"  # mdi:snowflake (cool)
+      - "\U000F0210"  # mdi:fan
+      - "\U000F0E4B"  # mdi:fire (heat)
+      - "\U000F0425"  # mdi:power
+      - "\U000F0AE4"  # mdi:blinds
+      - "\U000F040A"  # mdi:play
+      - "\U000F03E4"  # mdi:pause
+      - "\U000F04AD"  # mdi:skip-next
+      - "\U000F04AE"  # mdi:skip-previous
+      - "\U000F057E"  # mdi:volume-high
+      - "\U000F0580"  # mdi:volume-medium
+      - "\U000F0581"  # mdi:volume-off
+      - "\U000F0532"  # mdi:television
+      - "\U000F0415"  # mdi:plus
+      - "\U000F0374"  # mdi:minus
+      - "\U000F0450"  # mdi:refresh
+      - "\U000F0411"  # mdi:playlist-music
+      # Weather icons
+      - "\U000F0599"  # mdi:weather-sunny
+      - "\U000F0595"  # mdi:weather-cloudy
+      - "\U000F0597"  # mdi:weather-pouring
+      - "\U000F0598"  # mdi:weather-rainy
+      - "\U000F059D"  # mdi:weather-snowy
+      - "\U000F0591"  # mdi:weather-fog
+      - "\U000F067E"  # mdi:weather-partly-cloudy
+      - "\U000F059E"  # mdi:weather-windy
+      - "\U000F0593"  # mdi:weather-lightning
+      # Blinds open/close arrows
+      - "\U000F0143"  # mdi:chevron-up
+      - "\U000F0140"  # mdi:chevron-down
+      # Streaming service icons
+      - "\U000F0746"  # mdi:netflix
+      - "\U000F0AD4"  # mdi:movie-open (for Prime Video)
+      # Transport controls
+      - "\U000F045F"  # mdi:rewind
+      - "\U000F0211"  # mdi:fast-forward
+      # Playlist buttons
+      - "\U000F0594"  # mdi:weather-night (evening)
+      # Battery icons
+      - "\U000F0079"  # mdi:battery (full, 75-100%)
+      - "\U000F007E"  # mdi:battery-50 (mid, 25-75%)
+      - "\U000F007B"  # mdi:battery-20 (low, 5-25%)
+      - "\U000F0083"  # mdi:battery-alert (extremely low, <5%)
+      - "\U000F0084"  # mdi:battery-charging (charging full)
+      - "\U000F089D"  # mdi:battery-charging-50 (charging mid)
+      - "\U000F0086"  # mdi:battery-charging-20 (charging low)
+      - "\U000F10CD"  # mdi:battery-alert-variant-outline (charging extremely low)
+      - "\U000F008E"  # mdi:battery-outline (unknown/no data)
+      # Room icons
+      - "\U000F02E3"  # mdi:bed (bedroom)
+      - "\U000F04B9"  # mdi:sofa (living room)
+      - "\U000F0F39"  # mdi:baby-bottle (baby room)
+      - "\U000F04DE"  # mdi:stove (kitchen)
+      - "\U000F02DC"  # mdi:home (default)
+      - "\U000F04DB"  # mdi:stop (blinds)
+  - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
+    id: mdi_36
+    size: 36
+    bpp: 4
+    glyphs:
+      - "\U000F040A"  # mdi:play
+      - "\U000F03E4"  # mdi:pause
+      - "\U000F04AD"  # mdi:skip-next
+      - "\U000F04AE"  # mdi:skip-previous
+      - "\U000F0238"  # mdi:thermometer
+      - "\U000F0387"  # mdi:music-note (artwork placeholder)
+  - file: "gfonts://Roboto"
+    id: roboto_12
+    size: 12
+    bpp: 4
+  - file: "gfonts://Roboto"
+    id: roboto_14
+    size: 14
+    bpp: 4
+  - file: "gfonts://Roboto"
+    id: roboto_18
+    size: 18
+    bpp: 4
+  - file: "gfonts://Roboto"
+    id: roboto_24
+    size: 24
+    bpp: 4
+
+lvgl:
+  displays:
+    - LCD
+  touchscreens:
+    - my_touch
+  buffer_size: 10%  # Reduced from 25% to help with memory pressure
+  disp_bg_color: 0x000000
+  # One consistent dark look. Buttons give a small "push" when pressed instead
+  # of changing colour, so brand-coloured buttons keep their colour.
+  theme:
+    dark_mode: true
+    button:
+      bg_color: 0x2A2A2A
+      text_color: 0xFFFFFF
+      radius: 10
+      border_width: 0
+      shadow_width: 0
+      pressed:
+        bg_opa: 70%
+        transform_width: -2
+        transform_height: -2
+    slider:
+      bg_color: 0x333333
+      indicator:
+        bg_color: 0x1DB954
+      knob:
+        bg_color: 0xFFFFFF
+        pad_all: 4
+
+  # ===== SHARED STATUS BAR (stays put while pages slide underneath) =====
+  top_layer:
+    widgets:
+      - label:
+          id: lbl_room
+          x: 4
+          y: 3
+          text_font: mdi_20
+          text: ${room_icon}
+          text_color: 0x9E9E9E
+      - label:
+          id: lbl_weather
+          x: 28
+          y: 3
+          text_font: mdi_20
+          text: "\U000F0599"
+          text_color: 0xFFCC00
+      - label:
+          id: lbl_outdoor_temp
+          x: 50
+          y: 7
+          width: 36
+          text_font: roboto_12
+          text: "--°"
+          text_color: 0xBDBDBD
+      - label:
+          id: lbl_time
+          align: top_mid
+          y: 3
+          text_font: roboto_14
+          text: "--:--"
+          text_color: 0xFFFFFF
+      # Page indicator: room / music / tv
+      - obj:
+          id: dot_page_0
+          x: 105
+          y: 22
+          width: 6
+          height: 6
+          radius: 3
+          bg_color: 0x555555
+          border_width: 0
+          clickable: false
+      - obj:
+          id: dot_page_1
+          x: 113
+          y: 22
+          width: 6
+          height: 6
+          radius: 3
+          bg_color: 0xFFFFFF
+          border_width: 0
+          clickable: false
+      - obj:
+          id: dot_page_2
+          x: 121
+          y: 22
+          width: 6
+          height: 6
+          radius: 3
+          bg_color: 0x555555
+          border_width: 0
+          clickable: false
+      - obj:
+          id: dot_page_3
+          x: 129
+          y: 22
+          width: 6
+          height: 6
+          radius: 3
+          bg_color: 0x555555
+          border_width: 0
+          clickable: false
+      - label:
+          id: lbl_battery
+          x: 190
+          y: 3
+          text_font: mdi_20
+          text: "\U000F008E"
+          text_color: 0x666666
+      - label:
+          id: lbl_wifi
+          x: 215
+          y: 3
+          text_font: mdi_20
+          text: "\U000F0928"
+          text_color: 0xE74C3C
+      # Key-press feedback (see script_toast)
+      - obj:
+          id: toast
+          align: bottom_mid
+          y: -10
+          width: 214
+          height: 36
+          radius: 18
+          bg_color: 0x333333
+          bg_opa: 95%
+          border_width: 0
+          pad_all: 0
+          clickable: false
+          hidden: true
+          widgets:
+            - label:
+                id: lbl_toast
+                align: center
+                width: 200
+                long_mode: dot
+                text_align: center
+                text_font: roboto_14
+                text: ""
+                text_color: 0xFFFFFF

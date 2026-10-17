@@ -1,0 +1,176 @@
+# OMOTE - core.yaml
+# Device identity, framework, connectivity (WiFi, API, OTA), time.
+# Included from omote.yaml; all ${...} values are set there.
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  on_boot:
+    # Release the pad holds set by script_enter_deep_sleep before any component
+    # touches these pins (held pads ignore writes), and keep the SD card
+    # (unused here, GPIO16 LOW = powered) switched off.
+    - priority: 1050
+      then:
+        - lambda: |-
+            for (auto pin : {GPIO_NUM_38, GPIO_NUM_9, GPIO_NUM_16, GPIO_NUM_6, GPIO_NUM_5,
+                             GPIO_NUM_46, GPIO_NUM_39, GPIO_NUM_40, GPIO_NUM_41, GPIO_NUM_42,
+                             GPIO_NUM_48, GPIO_NUM_47, GPIO_NUM_21, GPIO_NUM_14, GPIO_NUM_13,
+                             GPIO_NUM_12, GPIO_NUM_11, GPIO_NUM_10}) {
+              gpio_hold_dis(pin);
+            }
+            gpio_deep_sleep_hold_dis();
+            gpio_set_direction(GPIO_NUM_16, GPIO_MODE_OUTPUT);
+            gpio_set_level(GPIO_NUM_16, 1);
+    # Required to set lcd_rd off before display will work
+    - priority: 600
+      then:
+        - output.turn_off: lcd_rd
+    # Turn on backlight after boot (including wake from deep sleep)
+    - priority: -100
+      then:
+        - light.turn_on:
+            id: back_light
+            brightness: !lambda 'return id(is_nighttime) ? ${screen_night_brightness} : id(cfg_brightness).state / 100.0f;'
+        - globals.set:
+            id: device_sleeping
+            value: 'false'
+        - script.execute: script_reset_backlight_timeout
+        # Values stay greyed out until Home Assistant has sent fresh state
+        - script.execute:
+            id: script_set_stale
+            stale: true
+        # Come back on the page that was open before sleeping
+        - if:
+            condition:
+              lambda: 'return id(saved_page) == 0;'
+            then:
+              - lvgl.page.show: {id: room_page, animation: NONE}
+            else:
+              - if:
+                  condition:
+                    lambda: 'return id(saved_page) == 2;'
+                  then:
+                    - lvgl.page.show: {id: tv_page, animation: NONE}
+                  else:
+                    - if:
+                        condition:
+                          lambda: 'return id(saved_page) == 3;'
+                        then:
+                          - lvgl.page.show: {id: settings_page, animation: NONE}
+                        else:
+                          - lvgl.page.show: {id: music_page, animation: NONE}
+        - globals.set:
+            id: boot_done
+            value: 'true'
+        - script.execute: script_settings_sync
+        - script.execute: script_replay_wake_key
+
+# External components
+# NOTE: Comment out components that cause boot loops if hardware not detected
+external_components:
+  # TCA8418 keypad matrix -github component
+  - source: github://arankwende/tca8418-keypad-esphome@main
+  - source: github://arankwende/lis3dh-esphome@main
+
+esp32:
+  board: esp32-s3-devkitc-1
+  cpu_frequency: 240Mhz
+  framework:
+    type: esp-idf
+
+# PSRAM configuration - CRITICAL for LVGL display
+# The Omote uses ESP32-S3 with PSRAM
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: DEBUG
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: ${ha_api_key}
+  # Status-bar WiFi icon: red = no WiFi, amber = WiFi only, green = HA connected
+  on_client_connected:
+    - logger.log: "Home Assistant connected"
+    - lvgl.widget.update:
+        id: lbl_wifi
+        text_color: 0x2ECC71
+    # give HA a moment to push the current states before un-greying
+    - delay: 800ms
+    - script.execute:
+        id: script_set_stale
+        stale: false
+  on_client_disconnected:
+    - logger.log: "Home Assistant disconnected"
+    - lvgl.widget.update:
+        id: lbl_wifi
+        text_color: 0xF5A623
+    - script.execute:
+        id: script_set_stale
+        stale: true
+
+ota:
+  # TODO(after this firmware is on the remote): ESPHome now prefers OTA
+  # encryption with the API key over a password. Switching in one step would
+  # make the next wireless upload fail, because the firmware currently on the
+  # remote only accepts the password. Flash this version first, then replace
+  # `password:` with `encryption: {key: ${ha_api_key}}` and flash again.
+  - platform: esphome
+    password: ${ota_key}
+    on_begin:
+      - switch.turn_on: stay_awake
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # Skip the scan on every wake; together with manual_ip this cuts reconnect time.
+  fast_connect: true
+  on_connect:
+    - lvgl.widget.update:
+        id: lbl_wifi
+        text_color: 0xF5A623
+  on_disconnect:
+    - lvgl.widget.update:
+        id: lbl_wifi
+        text_color: 0xE74C3C
+# Manual IP config
+  manual_ip:
+      static_ip: ${static_ip}
+      gateway: ${gateway}
+      subnet: ${subnet}
+      dns1: ${dns1}
+      dns2: ${dns2}
+# web_server:  # Disabled temporarily to reduce memory usage
+#   port: 80
+
+http_request:
+  useragent: esphome/omote
+  timeout: 10s
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+    # Without this the clock stays blank for up to a minute after every wake.
+    on_time_sync:
+      - script.execute: script_update_clock
+    on_time:
+      - seconds: 0
+        then:
+          - script.execute: script_update_clock
+
+sensor:
+  - platform: wifi_signal
+    id: wifi_rssi
+    name: "WiFi Signal"
+    update_interval: 60s
+    entity_category: diagnostic
+
+button:
+  - platform: restart
+    name: "Restart"
+  - platform: template
+    name: "TV IR"
+    on_press:
+      - script.execute: script_tv_power_toggle # This executes the script defined 

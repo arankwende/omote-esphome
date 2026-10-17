@@ -1,0 +1,529 @@
+# OMOTE - keypad.yaml
+# Physical keys: actions, on-screen feedback, hold-to-repeat.
+# Included from omote.yaml; all ${...} values are set there.
+
+binary_sensor:
+  # ==================== TCA8418 MATRIX KEYPAD BUTTONS ====================
+  #
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_1
+    row: 0
+    col: 4
+    name: "Botón 1"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: "${automation_row1_btn1_name}"
+          needs: 2
+      - logger.log: "Button 1 - launching automation"
+      - homeassistant.action:
+          action: script.turn_on
+          data:
+            entity_id: ${automation_row1_btn1}
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_2
+    row: 0
+    col: 3
+    name: "Botón 2"
+    on_press:
+      - logger.log: "Button 2 - navigate left"
+#      - script.execute: script_reset_backlight_timeout
+      - script.execute: script_prev_page
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_3
+    row: 0
+    col: 1
+    name: "Botón 3"
+    on_press:
+      - logger.log: "Button 3 - navigate right"
+ #     - script.execute: script_reset_backlight_timeout
+      - script.execute: script_next_page
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_4
+    row: 1
+    col: 0
+    name: "Botón 4"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: "${automation_row1_btn4_name}"
+          needs: 2
+      - logger.log: "Button 4 - launching automation"
+      - homeassistant.action:
+          action: script.turn_on
+          data:
+            entity_id: ${automation_row1_btn4}
+
+  # Media Buttons around the DPad - Page-aware behavior
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_media_1
+    row: 0
+    col: 2
+    name: "Botón Media 1"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: !lambda 'return std::string(id(current_page) == 2 ? "TV: Exit" : "Not used on this page");'
+          needs: 0
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 2;'  # TV page
+          then:
+            - script.execute: script_tv_exit
+          else:
+            - logger.log: "Media Button 1 Pressed"
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_media_2
+    row: 3
+    col: 0
+    name: "Botón Media 2"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: "Not used on this page"
+          needs: 0
+      - logger.log: "Media Button 2 pressed"
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_media_3
+    row: 1
+    col: 2
+    name: "Botón Media 3"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: !lambda 'return std::string(id(current_page) == 2 ? "TV: Previous" : "Not used on this page");'
+          needs: !lambda 'return id(current_page) == 2 ? 2 : 0;'
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 2;'  # TV page
+          then:
+            - script.execute: script_tv_media_prev
+          else:
+            - logger.log: "Media Button 3 pressed"
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_media_4
+    row: 4
+    col: 0
+    name: "Botón Media 4"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: !lambda 'return std::string(id(current_page) == 2 ? "TV: Next" : "Not used on this page");'
+          needs: !lambda 'return id(current_page) == 2 ? 2 : 0;'
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 2;'  # TV page
+          then:
+            - script.execute: script_tv_media_next
+          else:
+            - logger.log: "Media Button 4 pressed"
+
+  # Dpad buttons - TV navigation
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_dpad_up
+    row: 1
+    col: 3
+    name: "DPAD Up"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: "TV: Up"
+          needs: 0
+      - script.execute: script_tv_up
+      # hold to repeat (stops after 8s in case a release is ever missed)
+      - globals.set:
+          id: key_repeat_until
+          value: !lambda 'return millis() + 8000;'
+      - delay: 400ms
+      - while:
+          condition:
+            lambda: 'return id(btn_dpad_up).state && (int32_t) (id(key_repeat_until) - millis()) > 0;'
+          then:
+            - script.execute:
+                id: script_toast
+                text: "TV: Up"
+                needs: 0
+            - script.execute: script_tv_up
+            - delay: 160ms
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_dpad_down
+    row: 3
+    col: 4
+    name: "DPAD Down"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: "TV: Down"
+          needs: 0
+      - script.execute: script_tv_down
+      # hold to repeat (stops after 8s in case a release is ever missed)
+      - globals.set:
+          id: key_repeat_until
+          value: !lambda 'return millis() + 8000;'
+      - delay: 400ms
+      - while:
+          condition:
+            lambda: 'return id(btn_dpad_down).state && (int32_t) (id(key_repeat_until) - millis()) > 0;'
+          then:
+            - script.execute:
+                id: script_toast
+                text: "TV: Down"
+                needs: 0
+            - script.execute: script_tv_down
+            - delay: 160ms
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_dpad_left
+    row: 1
+    col: 4
+    name: "DPAD Left"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: "TV: Left"
+          needs: 0
+      - script.execute: script_tv_left
+      # hold to repeat (stops after 8s in case a release is ever missed)
+      - globals.set:
+          id: key_repeat_until
+          value: !lambda 'return millis() + 8000;'
+      - delay: 400ms
+      - while:
+          condition:
+            lambda: 'return id(btn_dpad_left).state && (int32_t) (id(key_repeat_until) - millis()) > 0;'
+          then:
+            - script.execute:
+                id: script_toast
+                text: "TV: Left"
+                needs: 0
+            - script.execute: script_tv_left
+            - delay: 160ms
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_dpad_right
+    row: 3
+    col: 1
+    name: "DPAD Right"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: "TV: Right"
+          needs: 0
+      - script.execute: script_tv_right
+      # hold to repeat (stops after 8s in case a release is ever missed)
+      - globals.set:
+          id: key_repeat_until
+          value: !lambda 'return millis() + 8000;'
+      - delay: 400ms
+      - while:
+          condition:
+            lambda: 'return id(btn_dpad_right).state && (int32_t) (id(key_repeat_until) - millis()) > 0;'
+          then:
+            - script.execute:
+                id: script_toast
+                text: "TV: Right"
+                needs: 0
+            - script.execute: script_tv_right
+            - delay: 160ms
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_dpad_center
+    row: 3
+    col: 3
+    name: "DPAD Center"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: "TV: OK"
+          needs: 0
+      - script.execute: script_tv_select
+
+  # Volume Buttons - Page-aware (Room/Music = media player, TV = TV IR)
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_volume_up
+    row: 3
+    col: 2
+    name: "Volume Up"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: !lambda 'return std::string(id(current_page) == 2 ? "TV volume +" : "Volume +");'
+          needs: !lambda 'return id(current_page) == 2 ? 0 : ${music_needs};'
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 2;'  # TV page
+          then:
+            - script.execute: script_tv_volume_up
+          else:
+            - script.execute: script_volume_up
+      # hold to repeat (stops after 8s in case a release is ever missed)
+      - globals.set:
+          id: key_repeat_until
+          value: !lambda 'return millis() + 8000;'
+      - delay: 400ms
+      - while:
+          condition:
+            lambda: 'return id(btn_volume_up).state && (int32_t) (id(key_repeat_until) - millis()) > 0;'
+          then:
+            - script.execute:
+                id: script_toast
+                text: !lambda 'return std::string(id(current_page) == 2 ? "TV volume +" : "Volume +");'
+                needs: !lambda 'return id(current_page) == 2 ? 0 : ${music_needs};'
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 2;'  # TV page
+                then:
+                  - script.execute: script_tv_volume_up
+                else:
+                  - script.execute: script_volume_up
+            - delay: 160ms
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_volume_down
+    row: 4
+    col: 2
+    name: "Volume Down"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: !lambda 'return std::string(id(current_page) == 2 ? "TV volume -" : "Volume -");'
+          needs: !lambda 'return id(current_page) == 2 ? 0 : ${music_needs};'
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 2;'  # TV page
+          then:
+            - script.execute: script_tv_volume_down
+          else:
+            - script.execute: script_volume_down
+      # hold to repeat (stops after 8s in case a release is ever missed)
+      - globals.set:
+          id: key_repeat_until
+          value: !lambda 'return millis() + 8000;'
+      - delay: 400ms
+      - while:
+          condition:
+            lambda: 'return id(btn_volume_down).state && (int32_t) (id(key_repeat_until) - millis()) > 0;'
+          then:
+            - script.execute:
+                id: script_toast
+                text: !lambda 'return std::string(id(current_page) == 2 ? "TV volume -" : "Volume -");'
+                needs: !lambda 'return id(current_page) == 2 ? 0 : ${music_needs};'
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == 2;'  # TV page
+                then:
+                  - script.execute: script_tv_volume_down
+                else:
+                  - script.execute: script_volume_down
+            - delay: 160ms
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_volume_mute
+    row: 4
+    col: 3
+    name: "Mute"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: !lambda 'return std::string(id(current_page) == 2 ? "TV mute" : "Mute");'
+          needs: !lambda 'return id(current_page) == 2 ? 0 : ${music_needs};'
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 2;'  # TV page
+          then:
+            - script.execute: script_tv_mute
+          else:
+            - script.execute: script_music_mute
+
+  # Channel/Record Buttons - TV remote
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_channel_record
+    row: 4
+    col: 4
+    name: "Record"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: !lambda 'return std::string(id(current_page) == 2 ? "TV: Play / Pause" : "${automation_record_name}");'
+          needs: 2
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 2;'  # TV page
+          then:
+            - script.execute: script_tv_media_play_pause
+          else:
+            - logger.log: "Record - launching automation"
+            - homeassistant.action:
+                action: script.turn_on
+                data:
+                  entity_id: ${automation_record}
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_channel_up
+    row: 4
+    col: 1
+    name: "Channel Up"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: "TV: Channel +"
+          needs: 0
+      - script.execute: script_tv_channel_up
+      # hold to repeat (stops after 8s in case a release is ever missed)
+      - globals.set:
+          id: key_repeat_until
+          value: !lambda 'return millis() + 8000;'
+      - delay: 400ms
+      - while:
+          condition:
+            lambda: 'return id(btn_channel_up).state && (int32_t) (id(key_repeat_until) - millis()) > 0;'
+          then:
+            - script.execute:
+                id: script_toast
+                text: "TV: Channel +"
+                needs: 0
+            - script.execute: script_tv_channel_up
+            - delay: 160ms
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_channel_down
+    row: 2
+    col: 1
+    name: "Channel Down"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: "TV: Channel -"
+          needs: 0
+      - script.execute: script_tv_channel_down
+      # hold to repeat (stops after 8s in case a release is ever missed)
+      - globals.set:
+          id: key_repeat_until
+          value: !lambda 'return millis() + 8000;'
+      - delay: 400ms
+      - while:
+          condition:
+            lambda: 'return id(btn_channel_down).state && (int32_t) (id(key_repeat_until) - millis()) > 0;'
+          then:
+            - script.execute:
+                id: script_toast
+                text: "TV: Channel -"
+                needs: 0
+            - script.execute: script_tv_channel_down
+            - delay: 160ms
+
+  # Scene Buttons - Launch automations
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_scene_1
+    row: 2
+    col: 2
+    name: "Scene Button 1"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: "${automation_scene_1_name}"
+          needs: 2
+      - logger.log: "Scene 1 - launching automation"
+      - homeassistant.action:
+          action: script.turn_on
+          data:
+            entity_id: ${automation_scene_1}
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_scene_2
+    row: 2
+    col: 4
+    name: "Scene Button 2"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: "${automation_scene_2_name}"
+          needs: 2
+      - logger.log: "Scene 2 - launching automation"
+      - homeassistant.action:
+          action: script.turn_on
+          data:
+            entity_id: ${automation_scene_2}
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_scene_3
+    row: 2
+    col: 3
+    name: "Scene Button 3"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: "${automation_scene_3_name}"
+          needs: 2
+      - logger.log: "Scene 3 - launching automation"
+      - homeassistant.action:
+          action: script.turn_on
+          data:
+            entity_id: ${automation_scene_3}
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_scene_4
+    row: 2
+    col: 0
+    name: "Scene Button 4"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: "${automation_scene_4_name}"
+          needs: 2
+      - logger.log: "Scene 4 - launching automation"
+      - homeassistant.action:
+          action: script.turn_on
+          data:
+            entity_id: ${automation_scene_4}
+
+  - platform: tca8418_keypad
+    tca8418_keypad_id: keypad
+    id: btn_power_keypad
+    key: 102
+    name: "Power Button"
+    on_press:
+      - script.execute:
+          id: script_toast
+          text: "Going to sleep"
+          needs: 0
+      - logger.log: "Power button pressed - entering deep sleep"
+      - script.execute:
+          id: script_enter_deep_sleep
+          motion_wake: false
+
+globals:
+  # Hold-to-repeat safety stop (a lost key-release can't repeat forever)
+  - id: key_repeat_until
+    type: uint32_t
+    initial_value: "0"

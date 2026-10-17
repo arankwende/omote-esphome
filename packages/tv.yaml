@@ -1,0 +1,487 @@
+# OMOTE - tv.yaml
+# TV page: IR remote, TV media player, app launcher.
+# Included from omote.yaml; all ${...} values are set there.
+
+text_sensor:
+  # TV media player info
+  - platform: homeassistant
+    id: tv_media_title
+    entity_id: ${tv_media_player}
+    attribute: media_title
+    on_value:
+      - lvgl.label.update:
+          id: lbl_tv_title
+          text: !lambda 'return x;'
+  - platform: homeassistant
+    id: tv_media_artist
+    entity_id: ${tv_media_player}
+    attribute: media_artist
+    on_value:
+      - lvgl.label.update:
+          id: lbl_tv_artist
+          text: !lambda 'return x;'
+  # TV media player art - no display widget on TV page, sensor omitted
+  # TV media player state for play/pause icon
+  - platform: homeassistant
+    id: tv_media_state
+    entity_id: ${tv_media_player}
+    on_value:
+      - if:
+          condition:
+            lambda: 'return x == "playing";'
+          then:
+            - lvgl.label.update:
+                id: lbl_tv_play_pause
+                text: "\U000F03E4"
+          else:
+            - lvgl.label.update:
+                id: lbl_tv_play_pause
+                text: "\U000F040A"
+  # TV input -> highlight the matching app button (#10)
+  - platform: homeassistant
+    id: tv_source
+    entity_id: ${tv_media_player}
+    attribute: source
+    on_value:
+      - lambda: |-
+          const std::pair<lv_obj_t *, const char *> apps[] = {
+              {id(btn_jellyfin), "Jellyfin"}, {id(btn_prime), "Prime Video"}, {id(btn_netflix), "Netflix"},
+              {id(btn_hbo), "HBO Max"}, {id(btn_disney), "Disney+"}};
+          for (auto &a : apps) {
+            if (x == a.second) lv_obj_add_state(a.first, LV_STATE_CHECKED);
+            else lv_obj_remove_state(a.first, LV_STATE_CHECKED);
+          }
+
+script:
+  # TV control scripts - DPAD navigation
+  - id: script_tv_up
+    then:
+      - logger.log: "TV: Up"
+      - remote_transmitter.${remote_type}:
+          data: ${tv_ir_cmd_up}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_up}
+
+  - id: script_tv_down
+    then:
+      - logger.log: "TV: Down"
+      - remote_transmitter.${remote_type}:
+          data : ${tv_ir_cmd_down}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_down}
+
+  - id: script_tv_left
+    then:
+      - logger.log: "TV: Left"
+      - remote_transmitter.${remote_type}:
+          data : ${tv_ir_cmd_left}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_left}
+  - id: script_tv_right
+    then:
+      - logger.log: "TV: Right"
+      - remote_transmitter.${remote_type}:
+          data : ${tv_ir_cmd_right}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_right}
+
+  - id: script_tv_select
+    then:
+      - logger.log: "TV: Select"
+      - remote_transmitter.${remote_type}:
+          data : ${tv_ir_cmd_select}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_select}
+
+  # TV control scripts - Channel
+  - id: script_tv_channel_up
+    then:
+      - logger.log: "TV: Channel Up"
+      - remote_transmitter.${remote_type}:
+          data : ${tv_ir_cmd_channel_up}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_channel_up}
+
+  - id: script_tv_channel_down
+    then:
+      - logger.log: "TV: Channel Down"
+      - remote_transmitter.${remote_type}:
+          data : ${tv_ir_cmd_channel_down}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_channel_down}
+
+  # TV control scripts - Volume
+  - id: script_tv_volume_up
+    then:
+      - logger.log: "TV: Volume Up"
+      - remote_transmitter.${remote_type}:
+          data: ${tv_ir_cmd_volume_up}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_volume_up}
+  - id: script_tv_volume_down
+    then:
+      - logger.log: "TV: Volume Down"
+      - remote_transmitter.${remote_type}:
+          data : ${tv_ir_cmd_volume_down}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_volume_down}
+
+  - id: script_tv_mute
+    then:
+      - logger.log: "TV: Mute"
+      - remote_transmitter.${remote_type}:
+          data : ${tv_ir_cmd_mute}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_mute}
+
+  - id: script_tv_rewind
+    then:
+      - logger.log: "TV: Rewind"
+      - remote_transmitter.${remote_type}:
+          data: ${tv_ir_cmd_rewind}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_rewind}
+
+  - id: script_tv_fastforward
+    then:
+      - logger.log: "TV: Fast Forward"
+      - remote_transmitter.${remote_type}:
+          data: ${tv_ir_cmd_fastforward}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_fastforward}
+
+  - id: script_tv_exit
+    then:
+      - logger.log: "TV: Exit"
+      - remote_transmitter.${remote_type}:
+          data: ${tv_ir_cmd_exit}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_exit}
+
+  - id: script_tv_power_toggle
+    then:
+      - logger.log: "TV: Power Toggle"
+#      - remote_transmitter.${remote_type}:
+#          data: ${tv_ir_cmd_power_toggle}
+#          address: ${tv_ir_address}
+#          command: ${tv_ir_cmd_power_toggle}
+      - remote_transmitter.transmit_raw:
+          transmitter_id: IR_TX
+          carrier_frequency: 38kHz
+          code: [2703, -916, 442, -876, 463, -436, 465, -458, 436, -876, 913, -438, 462, -435, 458, -464, 437, -459, 435, -436, 461, -464, 437, -434, 466, -456, 440, -457, 435, -461, 436, -462, 433, -437, 909, -440, 459, -910, 435, -464, 436]
+
+  # TV media player control scripts
+  - id: script_tv_media_play_pause
+    then:
+      - logger.log: "TV Media: Play/Pause"
+      - homeassistant.action:
+          action: media_player.media_play_pause
+          data:
+            entity_id: ${tv_media_player}
+
+  - id: script_tv_media_next
+    then:
+      - logger.log: "TV Media: Next"
+      - homeassistant.action:
+          action: media_player.media_next_track
+          data:
+            entity_id: ${tv_media_player}
+
+  - id: script_tv_media_prev
+    then:
+      - logger.log: "TV Media: Previous"
+      - homeassistant.action:
+          action: media_player.media_previous_track
+          data:
+            entity_id: ${tv_media_player}
+
+  - id: script_launch_jellyfin
+    then:
+      - logger.log: "Launching Jellyfin"
+      - homeassistant.action:
+          action: media_player.select_source
+          data:
+            entity_id: ${tv_media_player}
+            source: "Jellyfin"
+
+  - id: script_launch_prime
+    then:
+      - logger.log: "Launching Prime Video"
+      - homeassistant.action:
+          action: media_player.select_source
+          data:
+            entity_id: ${tv_media_player}
+            source: "Prime Video"
+
+  - id: script_launch_netflix
+    then:
+      - logger.log: "Launching Netflix"
+      - homeassistant.action:
+          action: media_player.select_source
+          data:
+            entity_id: ${tv_media_player}
+            source: "Netflix"
+
+  - id: script_launch_hbo
+    then:
+      - logger.log: "Launching HBO Max"
+      - homeassistant.action:
+          action: media_player.select_source
+          data:
+            entity_id: ${tv_media_player}
+            source: "HBO Max"
+
+  - id: script_launch_disney
+    then:
+      - logger.log: "Launching Disney+"
+      - homeassistant.action:
+          action: media_player.select_source
+          data:
+            entity_id: ${tv_media_player}
+            source: "Disney+"
+
+lvgl:
+  pages:
+    # ==================== PAGE 3: TV ====================
+    - id: tv_page
+      bg_color: 0x000000
+      on_load:
+        - script.execute:
+            id: script_page_loaded
+            page: 2
+      on_swipe_left:
+        - script.execute: script_next_page
+      on_swipe_right:
+        - script.execute: script_prev_page
+      widgets:
+        # ===== NOW PLAYING + POWER =====
+        - obj:
+            id: card_tv
+            x: 5
+            y: 32
+            width: 178
+            height: 54
+            bg_color: 0x1A1A1A
+            radius: 12
+            border_width: 0
+            pad_all: 0
+            scrollable: false
+            widgets:
+              - label:
+                  id: lbl_tv_title
+                  x: 10
+                  y: 8
+                  width: 160
+                  text_font: roboto_14
+                  text: "Nothing playing"
+                  text_color: 0xFFFFFF
+                  long_mode: scroll_circular
+              - label:
+                  id: lbl_tv_artist
+                  x: 10
+                  y: 30
+                  width: 160
+                  text_font: roboto_12
+                  text: ""
+                  text_color: 0x888888
+                  long_mode: dot
+        - button:
+            id: btn_tv_power
+            x: 189
+            y: 32
+            width: 46
+            height: 54
+            bg_color: 0xC62828
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0425"
+            on_click:
+              - script.execute: script_tv_power_toggle
+
+        # ===== TRANSPORT (play icon follows the TV state) =====
+        - button:
+            id: btn_tv_prev
+            x: 22
+            y: 98
+            width: 58
+            height: 52
+            radius: 26
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_36
+                  text: "\U000F04AE"
+            on_click:
+              - script.execute: script_tv_media_prev
+        - button:
+            id: btn_tv_play_pause_btn
+            x: 88
+            y: 94
+            width: 64
+            height: 60
+            radius: 30
+            bg_color: 0xFF5722
+            scrollable: false
+            widgets:
+              - label:
+                  id: lbl_tv_play_pause
+                  align: center
+                  text_font: mdi_36
+                  text: "\U000F040A"
+            on_click:
+              - script.execute: script_tv_media_play_pause
+        - button:
+            id: btn_tv_next
+            x: 160
+            y: 98
+            width: 58
+            height: 52
+            radius: 26
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_36
+                  text: "\U000F04AD"
+            on_click:
+              - script.execute: script_tv_media_next
+
+        # ===== VOLUME (IR) =====
+        - button:
+            id: btn_tv_vol_down
+            x: 5
+            y: 162
+            width: 72
+            height: 44
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0374"
+            on_click:
+              - script.execute: script_tv_volume_down
+        - button:
+            id: btn_tv_mute
+            x: 84
+            y: 162
+            width: 72
+            height: 44
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0581"
+            on_click:
+              - script.execute: script_tv_mute
+        - button:
+            id: btn_tv_vol_up
+            x: 163
+            y: 162
+            width: 72
+            height: 44
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0415"
+            on_click:
+              - script.execute: script_tv_volume_up
+
+        # ===== APP LAUNCHER (brand colour + name) =====
+        - button:
+            id: btn_jellyfin
+            x: 5
+            y: 214
+            width: 73
+            height: 48
+            bg_color: 0x00A4DC
+            checked:
+              border_width: 3
+              border_color: 0xFFFFFF
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: roboto_14
+                  text: "Jellyfin"
+            on_click:
+              - script.execute: script_launch_jellyfin
+        - button:
+            id: btn_prime
+            x: 83
+            y: 214
+            width: 73
+            height: 48
+            bg_color: 0x00A8E1
+            checked:
+              border_width: 3
+              border_color: 0xFFFFFF
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: roboto_14
+                  text: "Prime"
+            on_click:
+              - script.execute: script_launch_prime
+        - button:
+            id: btn_netflix
+            x: 161
+            y: 214
+            width: 74
+            height: 48
+            bg_color: 0xE50914
+            checked:
+              border_width: 3
+              border_color: 0xFFFFFF
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: roboto_14
+                  text: "Netflix"
+            on_click:
+              - script.execute: script_launch_netflix
+        - button:
+            id: btn_hbo
+            x: 5
+            y: 268
+            width: 113
+            height: 46
+            bg_color: 0x5822B4
+            checked:
+              border_width: 3
+              border_color: 0xFFFFFF
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: roboto_14
+                  text: "HBO Max"
+            on_click:
+              - script.execute: script_launch_hbo
+        - button:
+            id: btn_disney
+            x: 122
+            y: 268
+            width: 113
+            height: 46
+            bg_color: 0x113CCF
+            checked:
+              border_width: 3
+              border_color: 0xFFFFFF
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: roboto_14
+                  text: "Disney+"
+            on_click:
+              - script.execute: script_launch_disney

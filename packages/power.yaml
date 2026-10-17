@@ -1,0 +1,355 @@
+# OMOTE - power.yaml
+# Battery monitoring, dim / screen-off / deep-sleep, wake handling.
+# Included from omote.yaml; all ${...} values are set there.
+
+# Deep sleep configuration (same scheme as the original OMOTE Rev5 firmware)
+# Wake sources, both active-LOW so they share one ext1 ANY_LOW wake:
+#   GPIO08 - TCA8418 INT (any key, including the power key)
+#   GPIO02 - LIS3DH INT1 (motion; configured active-low via interrupt_active_low)
+deep_sleep:
+  id: deep_sleep_ctrl
+  esp32_ext1_wakeup:
+    mode: ANY_LOW
+    pins:
+      - number: GPIO08
+        allow_other_uses: true
+      - number: GPIO02
+        allow_other_uses: true
+
+sensor:
+  - platform: max17043
+    battery_voltage:
+      id: battery_voltage
+      name: "Battery Voltage"
+    battery_level:
+      id: battery_level
+      name: "Battery Level"
+      on_value:
+        - lambda: |-
+            // ---- runtime estimate: % used since the last full charge / unplug ----
+            const bool chg = id(battery_charging).state;
+            auto now = id(homeassistant_time).now();
+            if (!std::isnan(x) && now.is_valid()) {
+              const uint32_t t = now.timestamp;
+              if (chg) {
+                if (id(batt_anchor_level) >= 0) id(batt_anchor_level) = -1;
+              } else if (id(batt_anchor_level) < 0 || x > id(batt_anchor_level) + 1.0f) {
+                id(batt_anchor_level) = x;
+                id(batt_anchor_time) = t;
+              } else {
+                const float used = id(batt_anchor_level) - x;
+                const float hours = (t - id(batt_anchor_time)) / 3600.0f;
+                if (used >= 2.0f && hours >= 3.0f)
+                  id(battery_runtime).publish_state(x / (used / hours) / 24.0f);
+              }
+            }
+            // ---- low battery warnings at 15% and 5% (once each per discharge) ----
+            if (chg) {
+              if (id(batt_warned) != 100) id(batt_warned) = 100;
+            } else if (!std::isnan(x)) {
+              const int lvl = x <= 5 ? 5 : (x <= 15 ? 15 : 100);
+              if (lvl < id(batt_warned)) {
+                id(batt_warned) = lvl;
+                id(batt_warn_now) = lvl;
+              }
+            }
+        - if:
+            condition:
+              lambda: 'return id(batt_warn_now) > 0;'
+            then:
+              - lvgl.label.update:
+                  id: lbl_toast
+                  text: !lambda 'return str_sprintf("Battery low: %d%% - please charge", (int) x);'
+              - lvgl.widget.update:
+                  id: toast
+                  bg_color: 0xB71C1C
+                  hidden: false
+              - globals.set:
+                  id: batt_warn_now
+                  value: '0'
+              - delay: 4s
+              - lvgl.widget.hide: toast
+        - script.execute: script_settings_info
+        - lambda: |-
+            float level = x;
+            bool charging = id(battery_charging).state;
+            std::string icon;
+            uint32_t color_hex;
+
+            if (std::isnan(level)) {
+              icon = "\U000F008E"; // battery-outline (unknown)
+              color_hex = 0x666666;
+            } else if (charging) {
+              if (level >= 75) { icon = "\U000F0084"; color_hex = 0x2ECC71; }       // charging full
+              else if (level >= 25) { icon = "\U000F089D"; color_hex = 0xF1C40F; }   // charging mid
+              else if (level >= 5) { icon = "\U000F0086"; color_hex = 0xF39C12; }    // charging low
+              else { icon = "\U000F10CD"; color_hex = 0xE74C3C; }                     // charging critical
+            } else {
+              if (level >= 75) { icon = "\U000F0079"; color_hex = 0x2ECC71; }        // full
+              else if (level >= 25) { icon = "\U000F007E"; color_hex = 0xF1C40F; }   // mid
+              else if (level >= 5) { icon = "\U000F007B"; color_hex = 0xF39C12; }    // low
+              else { icon = "\U000F0083"; color_hex = 0xE74C3C; }                     // critical
+            }
+
+            lv_label_set_text(id(lbl_battery), icon.c_str());
+            lv_obj_set_style_text_color(id(lbl_battery), lv_color_hex(color_hex), LV_PART_MAIN);
+    update_interval: 60s
+  # Days left at the recent discharge rate (#4). Unknown until ~2% has been
+  # used over at least 3h since the last charge.
+  - platform: template
+    id: battery_runtime
+    name: "Battery Runtime Estimate"
+    unit_of_measurement: d
+    accuracy_decimals: 1
+    icon: mdi:battery-clock
+    update_interval: never
+    on_value:
+      - script.execute: script_settings_info
+
+text_sensor:
+  # Sun state for nighttime screen off
+  - platform: homeassistant
+    id: sun_state
+    entity_id: sun.sun
+    on_value:
+      - if:
+          condition:
+            lambda: 'return x == "below_horizon";'
+          then:
+            - globals.set:
+                id: is_nighttime
+                value: 'true'
+#            - light.turn_off: back_light
+          else:
+            - globals.set:
+                id: is_nighttime
+                value: 'false'
+#            - light.turn_on: back_light
+
+binary_sensor:
+  # Charger status (MCP73831 STAT, GPIO01): LOW while charging
+  - platform: gpio
+    id: battery_charging
+    name: "Battery Charging"
+    pin:
+      number: GPIO01
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    filters:
+      - delayed_off: 1s
+
+globals:
+  # Device sleep state tracking
+  - id: device_sleeping
+    type: bool
+    initial_value: "false"
+  # Nighttime mode tracking (sundown to sunrise)
+  - id: is_nighttime
+    type: bool
+    restore_value: true  # remembered across deep sleep (only written at sunrise/sunset)
+    initial_value: "false"
+  # Last activity timestamp for backlight timeout
+  - id: last_activity_time
+    type: uint32_t
+    initial_value: "0"
+  # Battery runtime estimate (#4): level/time at the start of the discharge window
+  - id: batt_anchor_level
+    type: float
+    restore_value: true
+    initial_value: "-1"
+  - id: batt_anchor_time
+    type: uint32_t
+    restore_value: true
+    initial_value: "0"
+  # Lowest low-battery warning already shown (100 = none) and pending toast
+  - id: batt_warned
+    type: int
+    restore_value: true
+    initial_value: "100"
+  - id: batt_warn_now
+    type: int
+    initial_value: "0"
+  # 0 = on, 1 = dimmed, 2 = off (avoids re-sending light calls every second)
+  - id: screen_state
+    type: int
+    initial_value: "0"
+
+script:
+  # Replay the key that woke the remote once Home Assistant is connected (#2).
+  # The power key is dropped so waking doesn't immediately sleep again.
+  - id: script_replay_wake_key
+    then:
+      - lambda: |-
+          const uint8_t k = id(keypad).get_wake_key();
+          if (k == 102) id(keypad).clear_wake_key();
+          if (k != 0) ESP_LOGI("wake", "Woken by key %d", k);
+      - if:
+          condition:
+            lambda: 'return id(keypad).get_wake_key() != 0;'
+          then:
+            - wait_until:
+                condition:
+                  api.connected:
+                timeout: 15s
+            - delay: 300ms
+            - lambda: 'id(keypad).replay_wake_key();'
+
+  # Reset backlight timeout - call this on any user activity
+  - id: script_reset_backlight_timeout
+    then:
+      - globals.set:
+          id: last_activity_time
+          value: !lambda 'return millis();'
+      - if:
+          condition:
+            lambda: 'return id(screen_state) != 0;'
+          then:
+            - globals.set:
+                id: screen_state
+                value: '0'
+            - if:
+                condition: lvgl.is_paused
+                then:
+                  - lvgl.resume:
+                  - lvgl.widget.redraw:
+            - light.turn_on:
+                id: back_light
+                brightness: !lambda 'return id(is_nighttime) ? ${screen_night_brightness} : id(cfg_brightness).state / 100.0f;'
+                transition_length: 0s
+
+  # Deep sleep script. Mirrors the original OMOTE Rev5 enterSleep():
+  # peripherals off, pins parked and held, then ext1 wake on keypad/motion.
+  - id: script_enter_deep_sleep
+    mode: single
+    parameters:
+      motion_wake: bool
+    then:
+      - logger.log:
+          level: WARN
+          format: ">>> ENTERING DEEP SLEEP (motion wake: %s) <<<"
+          args: ['motion_wake ? "on" : "off"']
+      - globals.set:
+          id: device_sleeping
+          value: 'true'
+      - light.turn_off:
+          id: back_light
+          transition_length: 0s
+      - light.turn_off:
+          id: keypad_backlight
+          transition_length: 0s
+      - switch.turn_off: ir_receiver_power
+      - lvgl.pause:
+      # A key still held would keep TCA8418 INT low and wake us instantly.
+      - wait_until:
+          condition:
+            lambda: 'return gpio_get_level(GPIO_NUM_8) == 1;'
+          timeout: 3s
+      - lambda: |-
+          id(keypad).flush_events();
+          if (motion_wake) {
+            id(accel).clear_interrupt();  // also re-baselines the high-pass filter
+          } else {
+            id(accel).disable_motion_interrupt();  // re-armed on next boot
+          }
+      - delay: 50ms
+      - lambda: |-
+          // LCD bus lines LOW so nothing back-powers the switched-off panel
+          for (auto pin : {GPIO_NUM_39, GPIO_NUM_40, GPIO_NUM_41, GPIO_NUM_42, GPIO_NUM_48,
+                           GPIO_NUM_47, GPIO_NUM_21, GPIO_NUM_14, GPIO_NUM_13, GPIO_NUM_12,
+                           GPIO_NUM_11, GPIO_NUM_10}) {
+            gpio_set_direction(pin, GPIO_MODE_OUTPUT);
+            gpio_set_level(pin, 0);
+            gpio_hold_en(pin);
+          }
+          // LCD_EN / backlight: drive "off" then float, like the original
+          // firmware (it notes the display may not wake up otherwise)
+          gpio_set_level(GPIO_NUM_38, 1);
+          gpio_set_level(GPIO_NUM_9, 1);
+          gpio_set_direction(GPIO_NUM_38, GPIO_MODE_INPUT);
+          gpio_set_direction(GPIO_NUM_9, GPIO_MODE_INPUT);
+          gpio_hold_en(GPIO_NUM_38);
+          gpio_hold_en(GPIO_NUM_9);
+          // SD card power off (HIGH), IR receiver power off (LOW),
+          // IR LED off (HIGH), keypad backlight off (LOW)
+          const std::pair<gpio_num_t, int> parked[] = {
+              {GPIO_NUM_16, 1}, {GPIO_NUM_6, 0}, {GPIO_NUM_5, 1}, {GPIO_NUM_46, 0}};
+          for (auto &p : parked) {
+            gpio_set_direction(p.first, GPIO_MODE_OUTPUT);
+            gpio_set_level(p.first, p.second);
+            gpio_hold_en(p.first);
+          }
+          gpio_deep_sleep_hold_en();
+      - deep_sleep.enter: deep_sleep_ctrl
+
+
+  # Wake device script
+  - id: script_wake_device
+    then:
+      - logger.log: "Waking device..."
+      - globals.set:
+          id: device_sleeping
+          value: 'false'
+      - light.turn_on: back_light
+      - lvgl.resume:
+      - lvgl.widget.redraw:
+
+switch:
+  # Keeps the remote awake (screen still dims/turns off) for OTA and log
+  # sessions. Turned on automatically when an OTA starts; resets on reboot.
+  - platform: template
+    id: stay_awake
+    name: "Stay Awake"
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    entity_category: config
+
+# Dim -> screen off -> deep sleep after inactivity
+interval:
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            lambda: 'return !id(device_sleeping);'
+          then:
+            - if:
+                condition:
+                  lambda: |-
+                    return (millis() - id(last_activity_time)) / 1000 >= id(cfg_sleep_timeout).state &&
+                           !id(stay_awake).state;
+                then:
+                  - script.execute:
+                      id: script_enter_deep_sleep
+                      motion_wake: !lambda 'return id(lift_to_wake).state;'
+                else:
+                  - if:
+                      # At night skip the dim step and go straight to off
+                      condition:
+                        lambda: |-
+                          const uint32_t sleep_s = id(cfg_sleep_timeout).state;
+                          const uint32_t off_s = std::min<uint32_t>(id(is_nighttime) ? ${screen_dim_timeout} : ${screen_off_timeout}, sleep_s);
+                          return id(screen_state) != 2 && (millis() - id(last_activity_time)) / 1000 >= off_s;
+                      then:
+                        - globals.set:
+                            id: screen_state
+                            value: '2'
+                        - light.turn_off:
+                            id: back_light
+                            transition_length: 500ms
+                        - light.turn_off: keypad_backlight
+                        - lvgl.pause:
+                      else:
+                        - if:
+                            condition:
+                              lambda: |-
+                                return id(screen_state) == 0 &&
+                                       (millis() - id(last_activity_time)) / 1000 >= ${screen_dim_timeout};
+                            then:
+                              - globals.set:
+                                  id: screen_state
+                                  value: '1'
+                              - light.turn_on:
+                                  id: back_light
+                                  brightness: ${screen_dim_brightness}
+                                  transition_length: 500ms

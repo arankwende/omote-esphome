@@ -1,0 +1,183 @@
+# OMOTE - hardware.yaml
+# OMOTE Rev5 board: buses, display, touch, backlights, keypad controller, accelerometer, IR.
+# Included from omote.yaml; all ${...} values are set there.
+
+#set up battery sensor (MAX17043/MAX17048 fuel gauge at I2C 0x36)
+sensor:
+  # LIS3DH accelerometer (I2C 0x19) - acceleration + motion interrupt for deep sleep wake
+  - platform: lis3dh_motion
+    id: accel
+    address: 0x19
+    threshold: 16  # ~256mg motion wake threshold (16mg/LSB at +/-2g)
+    interrupt_active_low: true  # share ext1 ANY_LOW wake with the TCA8418 INT
+    update_interval: 60s
+    accel_x:
+      name: "Accel X"
+      id: accel_x
+    accel_y:
+      name: "Accel Y"
+      id: accel_y
+    accel_z:
+      name: "Accel Z"
+      id: accel_z
+    temperature:
+      name: "LIS3DH Temperature"
+      id: accel_temp
+
+binary_sensor:
+  # LIS3DH motion interrupt on INT1 (GPIO02)
+  # Active-LOW, latched until INT1_SRC is read (clear_interrupt)
+  - platform: gpio
+    id: motion_detected
+    name: "Motion Detected"
+    pin:
+      number: GPIO02
+      mode: INPUT
+      inverted: true
+      allow_other_uses: true  # also a deep sleep wake source
+    filters:
+      - delayed_off: 100ms
+    on_press:
+      - logger.log: "Motion detected - waking screen"
+      - script.execute: script_reset_backlight_timeout
+      - light.turn_on:
+          id: keypad_backlight
+          brightness: 100%
+      # Clear the latched interrupt right away so the next movement retriggers
+      # (the keypad backlight is switched off by the screen-off timer)
+      - lis3dh_motion.clear_interrupt: accel
+
+i2c:
+  id: i2c_bus
+  sda: GPIO20
+  scl: GPIO19
+  frequency: 100kHz  
+  sda_pullup_enabled: true  
+  scl_pullup_enabled: true 
+  scan: true
+  timeout: 100ms  
+
+tca8418_keypad:
+  id: keypad
+  address: 0x34
+  rows: 5
+  cols: 5
+  interrupt_pin:
+    number: GPIO08
+    allow_other_uses: true  # also a deep sleep wake source
+  # Any key press counts as activity for the dim/off/sleep timers.
+  on_key:
+    - if:
+        condition:
+          lambda: 'return pressed;'
+        then:
+          - script.execute: script_reset_backlight_timeout
+
+output:
+  # LCD Backlight GPIO
+  - platform: ledc
+    id: gpio_09
+    pin:
+      number: GPIO09
+      inverted: true
+  # Keypad Backlight GPIO
+  - platform: ledc
+    id: gpio_46
+    pin:
+      number: GPIO46
+      inverted: False
+      ignore_strapping_warning: true
+  - platform: gpio
+    # lcd_rd pin needs to be set HIGH before LCD will work.
+    # Set HIGH (turn off) with boot priority in esphome section.
+    id: lcd_rd
+    pin:
+      number: GPIO42
+      inverted: True
+
+light:
+  - platform: monochromatic
+    id: back_light
+    output: gpio_09
+    restore_mode: RESTORE_DEFAULT_ON
+    name: "LCD Backlight"
+  - platform: monochromatic
+    id: keypad_backlight
+    output: gpio_46
+    restore_mode: RESTORE_DEFAULT_OFF
+    name: "Keypad Backlight"
+
+touchscreen:
+  - platform: ft63x6
+    id: my_touch
+    display: LCD
+    address: 0x38
+    calibration:
+      x_min: 0
+      x_max: 237
+      y_min: 0
+      y_max: 319
+    transform:
+      mirror_x: true
+      mirror_y: true
+    on_release:
+      then:
+        - if:
+            condition: lvgl.is_paused
+            then:
+              - lvgl.resume:
+              - lvgl.widget.redraw:
+        - script.execute: script_reset_backlight_timeout
+
+spi:
+  - id: quad_spi_bus
+    type: octal
+    clk_pin:
+      number: GPIO41
+    data_pins:
+      - GPIO48
+      - GPIO47
+      - GPIO21
+      - GPIO14
+      - GPIO13
+      - GPIO12
+      - GPIO11
+      - GPIO10
+
+display:
+  - platform: mipi_spi
+    id: LCD
+    model: ILI9341
+    bus_mode: octal
+    dc_pin: GPIO40
+    cs_pin: GPIO39
+    enable_pin:
+      number: GPIO38
+      inverted: true
+    auto_clear_enabled: false
+    update_interval: never
+    data_rate: 40MHz
+
+switch:
+  # IR Receiver power
+  - platform: gpio
+    id: ir_receiver_power
+    name: "IR Receiver Power"
+    pin:
+      number: GPIO06
+    restore_mode: ALWAYS_OFF
+
+remote_receiver:
+  pin:
+    number: GPIO04
+  dump: all
+  use_dma: True
+
+remote_transmitter:
+  id: IR_TX
+  pin:
+    number: GPIO05
+    inverted: True
+  carrier_duty_percent: 50%
+  use_dma: True
+  non_blocking: true

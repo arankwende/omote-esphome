@@ -1,0 +1,47 @@
+# OMOTE with Music Assistant
+#
+# Same remote as omote.yaml (it is included below as a package, so pages,
+# keypad, power management and fixes stay in one place), but everything
+# related to music talks DIRECTLY to the Music Assistant server over its
+# HTTP API instead of going through Home Assistant media_player entities:
+#
+#   - play/pause, next, previous, volume, mute, quick-play playlists
+#   - now-playing title / artist / artwork / volume (polled from MA while the
+#     music page is on screen, and right after every command)
+#   - joining / unjoining speakers to this player (speaker button next to the
+#     volume slider on the music page)
+#
+# Setup:
+#   1. In Music Assistant create a long-lived token (your user profile ->
+#      access tokens / Settings -> Users, depending on MA version) and add it
+#      to secrets.yaml as `ma_token`.
+#   2. Fill in ma_url and ma_player_id below. MA player ids are NOT Home
+#      Assistant entity ids; find them at http://<ma-host>:8095/api-docs
+#      (try `players/all`) or in the MA web UI player settings.
+#   3. List up to 4 speakers that can join this player (leave an id empty to
+#      hide that slot).
+#   4. Flash this file instead of omote.yaml.
+
+packages:
+  omote: !include omote.yaml
+  music_assistant: !include packages/music-assistant.yaml
+
+substitutions:
+  # Music Assistant server (no trailing slash) and long-lived token
+  ma_url: "http://192.168.1.100:8095"
+  ma_token: !secret ma_token
+  # Music keys talk to MA directly: they need WiFi, not Home Assistant
+  music_needs: "1"
+  # MA player_id of the speaker this remote controls (group leader)
+  ma_player_id: "your_ma_player_id"
+  # Speakers that can be joined to the player above (empty id = hidden)
+  ma_speaker_1_id: "kitchen_player_id"
+  ma_speaker_1_name: "Kitchen"
+  ma_speaker_2_id: "living_player_id"
+  ma_speaker_2_name: "Living room"
+  ma_speaker_3_id: ""
+  ma_speaker_3_name: ""
+  ma_speaker_4_id: ""
+  ma_speaker_4_name: ""
+  # Quick-play playlists are MA URIs (ma_morning_playlist / ma_evening_playlist
+  # from omote.yaml are reused; override them here if needed)
