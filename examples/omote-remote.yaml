@@ -1,0 +1,25 @@
+# OMOTE remote - pulls the firmware from GitHub, keeps your settings here.
+# Put this file and secrets.yaml in your ESPHome config folder.
+substitutions:
+  name: omote
+  friendly_name: Omote Remote
+  # --- your Home Assistant entities (override the examples in omote.yaml) ---
+  climate_entity: climate.room_ac
+  light_entity: light.room_light
+  cover_entity_left: cover.room_blinds_left
+  cover_entity_right: cover.room_blinds_right
+  temp_sensor_entity: sensor.room_temperature
+  weather_entity: weather.home
+  tv_media_player: media_player.room_tv
+  ma_player: "room_speaker"   # media_player.<this>
+  # --- network ---
+  static_ip: 192.168.1.101
+  gateway: 192.168.1.1
+  subnet: 255.255.255.0
+
+packages:
+  omote:
+    url: https://github.com/arankwende/omote-esphome
+    ref: main
+    files: [omote.yaml]
+    refresh: 1d
