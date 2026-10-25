@@ -16,9 +16,10 @@ Currently, the following are working:
 ## File layout
 
 ```
-omote.yaml                    <- your settings (entities, names, IR codes, timeouts) + package list
+omote.yaml                    <- firmware entry point (Home Assistant music)
 omote-music-assistant.yaml    <- same remote, music via Music Assistant (builds on omote.yaml)
 packages/
+  defaults.yaml    default value of every setting (override in your device file)
   core.yaml        device, WiFi, API, OTA, time
   hardware.yaml    OMOTE Rev5 board: display, touch, keypad chip, accelerometer, IR
   power.yaml       battery, dim / screen-off / deep sleep, wake handling
@@ -28,10 +29,11 @@ packages/
   music.yaml       Music page via Home Assistant
   tv.yaml          TV page (IR, TV media player, apps)
   settings.yaml    Settings page + adjustable settings
-  music-assistant.yaml  Music Assistant overrides for music.yaml
+  music-assistant.yaml  Music Assistant overrides for music.yaml (+ playlist picker, queue)
+  speakers-ma.yaml Speakers page: control and group up to 6 Music Assistant players
 ```
 
-Only `omote.yaml` (and `secrets.yaml`) should normally need editing. Pages appear in the order of the `packages:` list.
+Don't edit the files in `packages/`: put your values in a device file (see `examples/`) that overrides `packages/defaults.yaml`. Pages appear in the order of the `packages:` list.
 
 ### Using it from the ESPHome dashboard
 

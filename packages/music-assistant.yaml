@@ -3,19 +3,6 @@
 # Assistant API calls, and adds the speakers and queue popups.
 # Included from omote-music-assistant.yaml; ${ma_*} values are set there.
 
-esphome:
-  on_boot:
-    - priority: -200
-      then:
-        - lambda: |-
-            // Hide speaker slots that are not configured
-            const std::pair<lv_obj_t *, const char *> slots[] = {
-                {id(btn_ma_spk_1), "${ma_speaker_1_id}"}, {id(btn_ma_spk_2), "${ma_speaker_2_id}"},
-                {id(btn_ma_spk_3), "${ma_speaker_3_id}"}, {id(btn_ma_spk_4), "${ma_speaker_4_id}"}};
-            for (auto &s : slots) {
-              if (s.second[0] == '\0') lv_obj_add_flag(s.first, LV_OBJ_FLAG_HIDDEN);
-            }
-
 # http_request blocks the main loop while a request is in flight; keep the
 # timeout short so an unreachable MA server can't freeze the UI for long.
 http_request:
@@ -62,6 +49,9 @@ globals:
   - id: ma_queue_index
     type: int
     initial_value: "-1"
+  # Playlist picker: URIs in roller order
+  - id: ma_playlist_uris
+    type: std::vector<std::string>
   # Skip polling until this millis() after an error (MA down / bad token)
   - id: ma_backoff_until
     type: uint32_t
@@ -260,19 +250,6 @@ script:
                       id(ma_art_changed) = true;
                     }
                   }
-
-                  // Speaker join buttons reflect group membership
-                  const std::pair<lv_obj_t *, const char *> slots[] = {
-                      {id(btn_ma_spk_1), "${ma_speaker_1_id}"}, {id(btn_ma_spk_2), "${ma_speaker_2_id}"},
-                      {id(btn_ma_spk_3), "${ma_speaker_3_id}"}, {id(btn_ma_spk_4), "${ma_speaker_4_id}"}};
-                  for (auto &s : slots) {
-                    if (s.second[0] == '\0') continue;
-                    if (m.find(std::string(",") + s.second + ",") != std::string::npos) {
-                      lv_obj_add_state(s.first, LV_STATE_CHECKED);
-                    } else {
-                      lv_obj_remove_state(s.first, LV_STATE_CHECKED);
-                    }
-                  }
                   return true;
                 });
                 if (!ok) ESP_LOGW("ma", "Could not parse players/get response (%u bytes)", body.size());
@@ -291,6 +268,7 @@ script:
                 ESP_LOGW("ma", "Music Assistant unreachable at ${ma_url}");
                 lv_label_set_text(id(lbl_music_title), "Music Assistant offline");
                 id(ma_backoff_until) = millis() + 30000;
+      - script.execute: script_ma_rooms_refresh
 
   # Queue: shuffle / repeat / position, then the next 5 items (only while the
   # queue popup is open, the item list is a larger response)
@@ -382,6 +360,97 @@ script:
             const char *next = r == "off" ? "all" : (r == "all" ? "one" : "off");
             return std::string("{\"queue_id\":\"${ma_player_id}\",\"repeat_mode\":\"") + next + "\"}";
 
+  # Playlist picker: load the MA library playlists into the roller
+  - id: script_ma_playlists_fetch
+    mode: single
+    then:
+      - lambda: 'lv_roller_set_options(id(ma_playlist_roller)->obj, "Loading...", LV_ROLLER_MODE_NORMAL);'
+      - http_request.post:
+          url: ${ma_url}/api
+          request_headers:
+            Authorization: "Bearer ${ma_token}"
+            Content-Type: application/json
+          body: '{"command":"music/playlists/library_items","args":{"limit":40,"order_by":"sort_name"}}'
+          capture_response: true
+          # playlist objects carry metadata and images
+          max_response_buffer_size: 160kB
+          on_response:
+            - lambda: |-
+                id(ma_playlist_uris).clear();
+                std::string opts;
+                if (response->status_code == 200) {
+                  JsonDocument doc = json::parse_json(body);
+                  for (JsonVariant pl : doc.as<JsonArray>()) {
+                    const char *uri = pl["uri"] | "";
+                    if (!uri[0]) continue;
+                    std::string name = pl["name"] | "?";
+                    for (auto &c : name) if (c == '\n') c = ' ';
+                    if (!opts.empty()) opts += "\n";
+                    opts += name;
+                    id(ma_playlist_uris).push_back(uri);
+                  }
+                } else {
+                  ESP_LOGW("ma", "library playlists failed: HTTP %d", response->status_code);
+                }
+                lv_roller_set_options(id(ma_playlist_roller)->obj, opts.empty() ? "No playlists" : opts.c_str(),
+                                      LV_ROLLER_MODE_NORMAL);
+          on_error:
+            - lambda: 'lv_roller_set_options(id(ma_playlist_roller)->obj, "MA unreachable", LV_ROLLER_MODE_NORMAL);'
+
+  - id: script_ma_open_playlists
+    then:
+      - lvgl.widget.show: ma_playlists_popup
+      - script.execute: script_ma_playlists_fetch
+
+  - id: script_ma_play_selected_playlist
+    then:
+      - lvgl.widget.hide: ma_playlists_popup
+      - if:
+          condition:
+            lambda: 'return lv_roller_get_selected(id(ma_playlist_roller)->obj) < id(ma_playlist_uris).size();'
+          then:
+            - script.execute:
+                id: script_toast
+                text: "Playing playlist"
+                needs: 1
+            - script.execute:
+                id: script_ma_command
+                command: player_queues/play_media
+                args: !lambda |-
+                  const auto &uri = id(ma_playlist_uris)[lv_roller_get_selected(id(ma_playlist_roller)->obj)];
+                  return "{\"queue_id\":\"${ma_player_id}\",\"media\":\"" + uri + "\",\"option\":\"replace\"}";
+
+  # D-pad on the music page; while the playlist picker is open it drives the
+  # roller instead (up/down select, centre plays)
+  - id: !remove script_music_dpad
+  - id: script_music_dpad
+    parameters:
+      dir: string
+    then:
+      - if:
+          condition:
+            lambda: 'return !lv_obj_has_flag(id(ma_playlists_popup), LV_OBJ_FLAG_HIDDEN);'
+          then:
+            - lambda: |-
+                auto *r = id(ma_playlist_roller)->obj;
+                const uint32_t cur = lv_roller_get_selected(r), n = lv_roller_get_option_count(r);
+                if (dir == "up" && cur > 0) lv_roller_set_selected(r, cur - 1, LV_ANIM_ON);
+                else if (dir == "down" && cur + 1 < n) lv_roller_set_selected(r, cur + 1, LV_ANIM_ON);
+                else if (dir == "center") id(script_ma_play_selected_playlist).execute();
+          else:
+            - script.execute:
+                id: script_toast
+                text: !lambda |-
+                  return std::string(dir == "up" ? "Volume +" : dir == "down" ? "Volume -" : dir == "left" ? "Previous"
+                                   : dir == "right" ? "Next" : "Play / Pause");
+                needs: ${music_needs}
+            - lambda: |-
+                if (dir == "up") id(script_volume_up).execute();
+                else if (dir == "down") id(script_volume_down).execute();
+                else if (dir == "left") id(script_music_prev).execute();
+                else if (dir == "right") id(script_music_next).execute();
+                else id(script_music_play_pause).execute();
+
   # Join or unjoin a speaker to this player
   - id: script_ma_toggle_speaker
     parameters:
@@ -403,7 +472,7 @@ interval:
       - if:
           condition:
             lambda: |-
-              return !id(device_sleeping) && id(screen_state) != 2 && id(current_page) == 1 &&
+              return !id(device_sleeping) && id(screen_state) != 2 && (id(current_page) == 1 || id(current_page) == ${speakers_page_index}) &&
                      (int32_t) (millis() - id(ma_backoff_until)) >= 0;
           then:
             - script.execute: script_ma_poll
@@ -430,8 +499,58 @@ lvgl:
       on_load:
         - script.execute: script_ma_poll
       on_unload:
-        - lvgl.widget.hide: [ma_speakers_popup, ma_queue_popup]
+        - lvgl.widget.hide: [ma_queue_popup, ma_playlists_popup]
       widgets:
+        # Bottom row: Morning / Evening / Playlists picker (replaces the two-button row)
+        - button:
+            id: !remove btn_morning_playlist
+        - button:
+            id: !remove btn_evening_playlist
+        - button:
+            id: btn_ma_morning
+            x: 5
+            y: 272
+            width: 73
+            height: 42
+            bg_color: 0xE67E22
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0599"
+            on_click:
+              - script.execute: script_play_morning_playlist
+        - button:
+            id: btn_ma_evening
+            x: 83
+            y: 272
+            width: 73
+            height: 42
+            bg_color: 0x5C4DB1
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0594"
+            on_click:
+              - script.execute: script_play_evening_playlist
+        - button:
+            id: btn_ma_playlists
+            x: 161
+            y: 272
+            width: 74
+            height: 42
+            bg_color: 0x1DB954
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0CB8"
+            on_click:
+              - script.execute: script_ma_open_playlists
         # Tap the now-playing card for the queue (shuffle / repeat / up next)
         - obj:
             id: !extend card_music
@@ -463,144 +582,7 @@ lvgl:
                   text: "\U000F0D38"
                   text_color: 0x1DB954
             on_click:
-              - lvgl.widget.show: ma_speakers_popup
-              - script.execute: script_ma_poll
-
-        # ===== SPEAKERS POPUP =====
-        - obj:
-            id: ma_speakers_popup
-            x: 0
-            y: 0
-            width: 240
-            height: 320
-            bg_color: 0x000000
-            bg_opa: 85%
-            border_width: 0
-            radius: 0
-            pad_all: 0
-            hidden: true
-            # tap outside the panel to close
-            on_click:
-              - lvgl.widget.hide: ma_speakers_popup
-            widgets:
-              - obj:
-                  align: center
-                  y: 12
-                  width: 220
-                  height: 276
-                  bg_color: 0x222222
-                  radius: 15
-                  border_width: 0
-                  pad_all: 0
-                  scrollable: false
-                  widgets:
-                    - label:
-                        x: 16
-                        y: 16
-                        width: 130
-                        text_font: roboto_18
-                        text: "Speakers"
-                        text_color: 0xFFFFFF
-                    - button:
-                        x: 172
-                        y: 8
-                        width: 40
-                        height: 40
-                        bg_color: 0x444444
-                        radius: 20
-                        scrollable: false
-                        widgets:
-                          - label:
-                              align: center
-                              text_font: roboto_18
-                              text: "X"
-                              text_color: 0xFFFFFF
-                        on_click:
-                          - lvgl.widget.hide: ma_speakers_popup
-                    - button:
-                        id: btn_ma_spk_1
-                        x: 12
-                        y: 56
-                        width: 196
-                        height: 44
-                        bg_color: 0x333333
-                        checkable: true
-                        checked:
-                          bg_color: 0x1DB954
-                        widgets:
-                          - label:
-                              align: left_mid
-                              x: 6
-                              text_font: roboto_14
-                              text: "${ma_speaker_1_name}"
-                              text_color: 0xFFFFFF
-                        on_click:
-                          - script.execute:
-                              id: script_ma_toggle_speaker
-                              speaker_id: "${ma_speaker_1_id}"
-                    - button:
-                        id: btn_ma_spk_2
-                        x: 12
-                        y: 108
-                        width: 196
-                        height: 44
-                        bg_color: 0x333333
-                        checkable: true
-                        checked:
-                          bg_color: 0x1DB954
-                        widgets:
-                          - label:
-                              align: left_mid
-                              x: 6
-                              text_font: roboto_14
-                              text: "${ma_speaker_2_name}"
-                              text_color: 0xFFFFFF
-                        on_click:
-                          - script.execute:
-                              id: script_ma_toggle_speaker
-                              speaker_id: "${ma_speaker_2_id}"
-                    - button:
-                        id: btn_ma_spk_3
-                        x: 12
-                        y: 160
-                        width: 196
-                        height: 44
-                        bg_color: 0x333333
-                        checkable: true
-                        checked:
-                          bg_color: 0x1DB954
-                        widgets:
-                          - label:
-                              align: left_mid
-                              x: 6
-                              text_font: roboto_14
-                              text: "${ma_speaker_3_name}"
-                              text_color: 0xFFFFFF
-                        on_click:
-                          - script.execute:
-                              id: script_ma_toggle_speaker
-                              speaker_id: "${ma_speaker_3_id}"
-                    - button:
-                        id: btn_ma_spk_4
-                        x: 12
-                        y: 212
-                        width: 196
-                        height: 44
-                        bg_color: 0x333333
-                        checkable: true
-                        checked:
-                          bg_color: 0x1DB954
-                        widgets:
-                          - label:
-                              align: left_mid
-                              x: 6
-                              text_font: roboto_14
-                              text: "${ma_speaker_4_name}"
-                              text_color: 0xFFFFFF
-                        on_click:
-                          - script.execute:
-                              id: script_ma_toggle_speaker
-                              speaker_id: "${ma_speaker_4_id}"
+              - lvgl.page.show: speakers_page
 
         # ===== QUEUE POPUP (tap the now-playing card) =====
         - obj:
@@ -747,3 +729,76 @@ lvgl:
                         text_font: roboto_14
                         text: ""
                         text_color: 0xBBBBBB
+
+        # ===== PLAYLIST PICKER (D-pad: up/down choose, centre plays) =====
+        - obj:
+            id: ma_playlists_popup
+            x: 0
+            y: 0
+            width: 240
+            height: 320
+            bg_color: 0x000000
+            bg_opa: 85%
+            border_width: 0
+            radius: 0
+            pad_all: 0
+            hidden: true
+            on_click:
+              - lvgl.widget.hide: ma_playlists_popup
+            widgets:
+              - obj:
+                  align: center
+                  y: 12
+                  width: 220
+                  height: 262
+                  bg_color: 0x222222
+                  radius: 15
+                  border_width: 0
+                  pad_all: 0
+                  scrollable: false
+                  widgets:
+                    - label:
+                        x: 16
+                        y: 16
+                        text_font: roboto_18
+                        text: "Playlists"
+                    - button:
+                        x: 172
+                        y: 8
+                        width: 40
+                        height: 40
+                        radius: 20
+                        bg_color: 0x444444
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_18
+                              text: "X"
+                        on_click:
+                          - lvgl.widget.hide: ma_playlists_popup
+                    - roller:
+                        id: ma_playlist_roller
+                        x: 12
+                        y: 56
+                        width: 196
+                        height: 136
+                        text_font: roboto_14
+                        options:
+                          - "Loading..."
+                        selected:
+                          bg_color: 0x1DB954
+                    - button:
+                        x: 12
+                        y: 204
+                        width: 196
+                        height: 44
+                        bg_color: 0x1DB954
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_14
+                              text: "Play"
+                        on_click:
+                          - script.execute: script_ma_play_selected_playlist

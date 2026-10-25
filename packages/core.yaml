@@ -39,26 +39,13 @@ esphome:
         - script.execute:
             id: script_set_stale
             stale: true
-        # Come back on the page that was open before sleeping
-        - if:
-            condition:
-              lambda: 'return id(saved_page) == 0;'
-            then:
-              - lvgl.page.show: {id: room_page, animation: NONE}
-            else:
-              - if:
-                  condition:
-                    lambda: 'return id(saved_page) == 2;'
-                  then:
-                    - lvgl.page.show: {id: tv_page, animation: NONE}
-                  else:
-                    - if:
-                        condition:
-                          lambda: 'return id(saved_page) == 3;'
-                        then:
-                          - lvgl.page.show: {id: settings_page, animation: NONE}
-                        else:
-                          - lvgl.page.show: {id: music_page, animation: NONE}
+        # Lay out the page dots and come back on the page that was open
+        # before sleeping (pages are numbered in swipe order)
+        - script.execute: script_layout_page_dots
+        - lambda: |-
+            int page = id(saved_page);
+            if (page < 0 || page >= ${page_count}) page = 1;
+            id(lvgl_comp).show_page(page, LV_SCREEN_LOAD_ANIM_NONE, 0);
         - globals.set:
             id: boot_done
             value: 'true'
@@ -75,6 +62,7 @@ external_components:
 esp32:
   board: esp32-s3-devkitc-1
   cpu_frequency: 240Mhz
+  flash_size: 16MB  # ESP32-S3-WROOM-1-N16R8 (OMOTE Rev5 BOM)
   framework:
     type: esp-idf
 

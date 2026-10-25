@@ -13,10 +13,11 @@ substitutions:
   # --- Music Assistant ---
   ma_url: "http://192.168.1.100:8095"
   ma_player_id: "your_ma_player_id"
-  ma_speaker_1_id: "kitchen_player_id"
-  ma_speaker_1_name: "Kitchen"
-  ma_speaker_2_id: ""
-  ma_speaker_2_name: ""
+  # Speakers page: up to 6 rooms (MA player ids; empty id = hidden)
+  room1_name: "Kitchen"
+  room1_ma_id: "kitchen_player_id"
+  room2_name: "Living room"
+  room2_ma_id: ""
   # --- network ---
   static_ip: 192.168.1.101
   gateway: 192.168.1.1

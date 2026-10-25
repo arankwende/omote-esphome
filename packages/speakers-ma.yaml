@@ -1,0 +1,516 @@
+# OMOTE - speakers-ma.yaml
+# Speakers page (Music Assistant): up to six rooms. Tap a room to control it
+# (play/pause, volume), add it to / remove it from this remote's group, or
+# group it with any other room. Rooms grouped with this remote's player are
+# highlighted. Included from omote-music-assistant.yaml.
+
+globals:
+  # Room the control popup is showing (0-5)
+  - id: ma_sel_room
+    type: int
+    initial_value: "0"
+
+esphome:
+  on_boot:
+    - priority: -200
+      then:
+        # Hide rooms without a Music Assistant player id
+        - lambda: |-
+            static const char *const ids[] = {"${room1_ma_id}", "${room2_ma_id}", "${room3_ma_id}", "${room4_ma_id}", "${room5_ma_id}", "${room6_ma_id}"};
+            lv_obj_t *tiles[] = {id(btn_room_1), id(btn_room_2), id(btn_room_3), id(btn_room_4), id(btn_room_5), id(btn_room_6)};
+            for (int i = 0; i < 6; i++)
+              if (ids[i][0] == '\0') lv_obj_add_flag(tiles[i], LV_OBJ_FLAG_HIDDEN);
+
+script:
+  # Highlight rooms that are in this remote's group (after every MA poll)
+  - id: script_ma_rooms_refresh
+    then:
+      - lambda: |-
+          static const char *const ids[] = {"${room1_ma_id}", "${room2_ma_id}", "${room3_ma_id}", "${room4_ma_id}", "${room5_ma_id}", "${room6_ma_id}"};
+          lv_obj_t *tiles[] = {id(btn_room_1), id(btn_room_2), id(btn_room_3), id(btn_room_4), id(btn_room_5), id(btn_room_6)};
+          const std::string &m = id(ma_members);
+          for (int i = 0; i < 6; i++) {
+            if (ids[i][0] == '\0') continue;
+            const bool grouped = id(ma_grouped) && m.find(std::string(",") + ids[i] + ",") != std::string::npos;
+            if (grouped) lv_obj_add_state(tiles[i], LV_STATE_CHECKED);
+            else lv_obj_remove_state(tiles[i], LV_STATE_CHECKED);
+          }
+          // keep the open popup's join button in sync
+          const char *sel = ids[id(ma_sel_room)];
+          const bool member = m.find(std::string(",") + sel + ",") != std::string::npos;
+          lv_label_set_text(id(lbl_room_join), strcmp(sel, "${ma_player_id}") == 0 ? "This remote's player"
+                                               : member ? "Remove from this remote's group"
+                                                        : "Add to this remote's group");
+
+  # Open the control popup for a room
+  - id: script_ma_room_open
+    parameters:
+      room: int
+    then:
+      - globals.set:
+          id: ma_sel_room
+          value: !lambda 'return room;'
+      - lambda: |-
+          static const char *const names[] = {"${room1_name}", "${room2_name}", "${room3_name}", "${room4_name}", "${room5_name}", "${room6_name}"};
+          lv_label_set_text(id(lbl_room_title), names[room]);
+          lv_label_set_text(id(lbl_room_state), "");
+          lv_roller_set_selected(id(roller_room_target)->obj, room == 0 ? 1 : 0, LV_ANIM_OFF);
+      - script.execute: script_ma_rooms_refresh
+      - lvgl.widget.show: ma_room_popup
+      - script.execute: script_ma_room_state
+
+  # Show the selected room's play state and volume
+  - id: script_ma_room_state
+    mode: single
+    then:
+      - http_request.post:
+          url: ${ma_url}/api
+          request_headers:
+            Authorization: "Bearer ${ma_token}"
+            Content-Type: application/json
+          body: !lambda |-
+            static const char *const ids[] = {"${room1_ma_id}", "${room2_ma_id}", "${room3_ma_id}", "${room4_ma_id}", "${room5_ma_id}", "${room6_ma_id}"};
+            return std::string("{\"command\":\"players/get\",\"args\":{\"player_id\":\"") + ids[id(ma_sel_room)] + "\"}}";
+          capture_response: true
+          max_response_buffer_size: 32kB
+          on_response:
+            - lambda: |-
+                if (response->status_code != 200) {
+                  lv_label_set_text(id(lbl_room_state), "Not found in Music Assistant");
+                  return;
+                }
+                json::parse_json(body, [](JsonObject root) -> bool {
+                  if (root.isNull()) {
+                    lv_label_set_text(id(lbl_room_state), "Not found in Music Assistant");
+                    return false;
+                  }
+                  if (!(root["available"] | true)) {
+                    lv_label_set_text(id(lbl_room_state), "Unavailable");
+                    return true;
+                  }
+                  std::string st = root["playback_state"] | "idle";
+                  if (!st.empty()) st[0] = toupper(st[0]);
+                  const int vol = root["volume_level"] | -1;
+                  const char *leader = root["synced_to"] | "";
+                  std::string txt = st + (vol >= 0 ? str_sprintf("  -  %d%%", vol) : std::string());
+                  if (leader[0]) txt += "  -  grouped";
+                  lv_label_set_text(id(lbl_room_state), txt.c_str());
+                  return true;
+                });
+
+  # Send a player command to the selected room, then refresh its state
+  - id: script_ma_room_cmd
+    parameters:
+      command: string
+    then:
+      - script.execute:
+          id: script_ma_command
+          command: !lambda 'return command;'
+          args: !lambda |-
+            static const char *const ids[] = {"${room1_ma_id}", "${room2_ma_id}", "${room3_ma_id}", "${room4_ma_id}", "${room5_ma_id}", "${room6_ma_id}"};
+            return std::string("{\"player_id\":\"") + ids[id(ma_sel_room)] + "\"}";
+      - delay: 600ms
+      - script.execute: script_ma_room_state
+
+  # Group the selected room with the room chosen in the roller
+  - id: script_ma_room_group
+    then:
+      - lambda: |-
+          static const char *const ids[] = {"${room1_ma_id}", "${room2_ma_id}", "${room3_ma_id}", "${room4_ma_id}", "${room5_ma_id}", "${room6_ma_id}"};
+          const uint32_t t = lv_roller_get_selected(id(roller_room_target)->obj);
+          if (t >= 6 || ids[t][0] == '\0' || (int) t == id(ma_sel_room)) {
+            lv_label_set_text(id(lbl_room_state), "Choose another configured room");
+            return;
+          }
+          id(script_ma_command).execute("players/cmd/group",
+              std::string("{\"player_id\":\"") + ids[id(ma_sel_room)] + "\",\"target_player\":\"" + ids[t] + "\"}");
+      - delay: 800ms
+      - script.execute: script_ma_room_state
+
+lvgl:
+  pages:
+    # ==================== SPEAKERS (Music Assistant) ====================
+    - id: speakers_page
+      bg_color: 0x000000
+      on_load:
+        - script.execute:
+            id: script_page_loaded
+            page: ${speakers_page_index}
+        - script.execute: script_ma_poll
+      on_unload:
+        - lvgl.widget.hide: ma_room_popup
+      on_swipe_left:
+        - script.execute: script_next_page
+      on_swipe_right:
+        - script.execute: script_prev_page
+      widgets:
+        - label:
+            x: 10
+            y: 34
+            text_font: roboto_18
+            text: "Speakers"
+        - button:
+            id: btn_room_1
+            x: 5
+            y: 58
+            width: 110
+            height: 72
+            bg_color: 0x2A2A2A
+            checked:
+              bg_color: 0x1DB954
+            scrollable: false
+            widgets:
+              - label:
+                  align: top_mid
+                  y: 2
+                  text_font: mdi_36
+                  text: "${room1_icon}"
+              - label:
+                  align: bottom_mid
+                  width: 100
+                  long_mode: dot
+                  text_align: center
+                  text_font: roboto_12
+                  text: "${room1_name}"
+            on_click:
+              - script.execute:
+                  id: script_ma_room_open
+                  room: 0
+        - button:
+            id: btn_room_2
+            x: 125
+            y: 58
+            width: 110
+            height: 72
+            bg_color: 0x2A2A2A
+            checked:
+              bg_color: 0x1DB954
+            scrollable: false
+            widgets:
+              - label:
+                  align: top_mid
+                  y: 2
+                  text_font: mdi_36
+                  text: "${room2_icon}"
+              - label:
+                  align: bottom_mid
+                  width: 100
+                  long_mode: dot
+                  text_align: center
+                  text_font: roboto_12
+                  text: "${room2_name}"
+            on_click:
+              - script.execute:
+                  id: script_ma_room_open
+                  room: 1
+        - button:
+            id: btn_room_3
+            x: 5
+            y: 136
+            width: 110
+            height: 72
+            bg_color: 0x2A2A2A
+            checked:
+              bg_color: 0x1DB954
+            scrollable: false
+            widgets:
+              - label:
+                  align: top_mid
+                  y: 2
+                  text_font: mdi_36
+                  text: "${room3_icon}"
+              - label:
+                  align: bottom_mid
+                  width: 100
+                  long_mode: dot
+                  text_align: center
+                  text_font: roboto_12
+                  text: "${room3_name}"
+            on_click:
+              - script.execute:
+                  id: script_ma_room_open
+                  room: 2
+        - button:
+            id: btn_room_4
+            x: 125
+            y: 136
+            width: 110
+            height: 72
+            bg_color: 0x2A2A2A
+            checked:
+              bg_color: 0x1DB954
+            scrollable: false
+            widgets:
+              - label:
+                  align: top_mid
+                  y: 2
+                  text_font: mdi_36
+                  text: "${room4_icon}"
+              - label:
+                  align: bottom_mid
+                  width: 100
+                  long_mode: dot
+                  text_align: center
+                  text_font: roboto_12
+                  text: "${room4_name}"
+            on_click:
+              - script.execute:
+                  id: script_ma_room_open
+                  room: 3
+        - button:
+            id: btn_room_5
+            x: 5
+            y: 214
+            width: 110
+            height: 72
+            bg_color: 0x2A2A2A
+            checked:
+              bg_color: 0x1DB954
+            scrollable: false
+            widgets:
+              - label:
+                  align: top_mid
+                  y: 2
+                  text_font: mdi_36
+                  text: "${room5_icon}"
+              - label:
+                  align: bottom_mid
+                  width: 100
+                  long_mode: dot
+                  text_align: center
+                  text_font: roboto_12
+                  text: "${room5_name}"
+            on_click:
+              - script.execute:
+                  id: script_ma_room_open
+                  room: 4
+        - button:
+            id: btn_room_6
+            x: 125
+            y: 214
+            width: 110
+            height: 72
+            bg_color: 0x2A2A2A
+            checked:
+              bg_color: 0x1DB954
+            scrollable: false
+            widgets:
+              - label:
+                  align: top_mid
+                  y: 2
+                  text_font: mdi_36
+                  text: "${room6_icon}"
+              - label:
+                  align: bottom_mid
+                  width: 100
+                  long_mode: dot
+                  text_align: center
+                  text_font: roboto_12
+                  text: "${room6_name}"
+            on_click:
+              - script.execute:
+                  id: script_ma_room_open
+                  room: 5
+        - label:
+            align: bottom_mid
+            y: -6
+            text_font: roboto_12
+            text: "Green = in this remote's group"
+            text_color: 0x777777
+
+        # ===== ROOM CONTROL POPUP =====
+        - obj:
+            id: ma_room_popup
+            x: 0
+            y: 0
+            width: 240
+            height: 320
+            bg_color: 0x000000
+            bg_opa: 85%
+            border_width: 0
+            radius: 0
+            pad_all: 0
+            hidden: true
+            on_click:
+              - lvgl.widget.hide: ma_room_popup
+            widgets:
+              - obj:
+                  align: center
+                  y: 12
+                  width: 220
+                  height: 276
+                  bg_color: 0x222222
+                  radius: 15
+                  border_width: 0
+                  pad_all: 0
+                  scrollable: false
+                  widgets:
+                    - label:
+                        id: lbl_room_title
+                        x: 16
+                        y: 14
+                        width: 150
+                        long_mode: dot
+                        text_font: roboto_18
+                        text: ""
+                    - button:
+                        x: 172
+                        y: 8
+                        width: 40
+                        height: 40
+                        radius: 20
+                        bg_color: 0x444444
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_18
+                              text: "X"
+                        on_click:
+                          - lvgl.widget.hide: ma_room_popup
+                    - label:
+                        id: lbl_room_state
+                        x: 16
+                        y: 42
+                        width: 190
+                        long_mode: dot
+                        text_font: roboto_12
+                        text: ""
+                        text_color: 0xAAAAAA
+                    # Play/pause, volume -/+
+                    - button:
+                        x: 12
+                        y: 64
+                        width: 62
+                        height: 46
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: mdi_20
+                              text: "\U000F040A"
+                        on_click:
+                          - script.execute:
+                              id: script_ma_room_cmd
+                              command: players/cmd/play_pause
+                    - button:
+                        x: 79
+                        y: 64
+                        width: 62
+                        height: 46
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: mdi_20
+                              text: "\U000F0374"
+                        on_click:
+                          - script.execute:
+                              id: script_ma_room_cmd
+                              command: players/cmd/volume_down
+                    - button:
+                        x: 146
+                        y: 64
+                        width: 62
+                        height: 46
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: mdi_20
+                              text: "\U000F0415"
+                        on_click:
+                          - script.execute:
+                              id: script_ma_room_cmd
+                              command: players/cmd/volume_up
+                    # Add to / remove from this remote's group
+                    - button:
+                        x: 12
+                        y: 118
+                        width: 196
+                        height: 40
+                        bg_color: 0x1DB954
+                        scrollable: false
+                        widgets:
+                          - label:
+                              id: lbl_room_join
+                              align: center
+                              width: 186
+                              long_mode: dot
+                              text_align: center
+                              text_font: roboto_14
+                              text: ""
+                        on_click:
+                          - if:
+                              condition:
+                                lambda: |-
+                                  static const char *const ids[] = {"${room1_ma_id}", "${room2_ma_id}", "${room3_ma_id}", "${room4_ma_id}", "${room5_ma_id}", "${room6_ma_id}"};
+                                  return strcmp(ids[id(ma_sel_room)], "${ma_player_id}") != 0;
+                              then:
+                                - script.execute:
+                                    id: script_ma_toggle_speaker
+                                    speaker_id: !lambda |-
+                                      static const char *const ids[] = {"${room1_ma_id}", "${room2_ma_id}", "${room3_ma_id}", "${room4_ma_id}", "${room5_ma_id}", "${room6_ma_id}"};
+                                      return std::string(ids[id(ma_sel_room)]);
+                    # Group with any other room
+                    - label:
+                        x: 14
+                        y: 166
+                        text_font: roboto_12
+                        text: "Group with:"
+                        text_color: 0xAAAAAA
+                    - roller:
+                        id: roller_room_target
+                        x: 12
+                        y: 184
+                        width: 112
+                        height: 80
+                        text_font: roboto_14
+                        visible_row_count: 3
+                        options:
+                          - "${room1_name}"
+                          - "${room2_name}"
+                          - "${room3_name}"
+                          - "${room4_name}"
+                          - "${room5_name}"
+                          - "${room6_name}"
+                        selected:
+                          bg_color: 0x1DB954
+                    - button:
+                        x: 132
+                        y: 184
+                        width: 76
+                        height: 38
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_14
+                              text: "Group"
+                        on_click:
+                          - script.execute: script_ma_room_group
+                    - button:
+                        x: 132
+                        y: 226
+                        width: 76
+                        height: 38
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_14
+                              text: "Ungroup"
+                        on_click:
+                          - script.execute:
+                              id: script_ma_room_cmd
+                              command: players/cmd/ungroup
+
+font:
+  - id: !extend mdi_36
+    glyphs:
+      - "${room1_icon}"
+      - "${room2_icon}"
+      - "${room3_icon}"
+      - "${room4_icon}"
+      - "${room5_icon}"
+      - "${room6_icon}"

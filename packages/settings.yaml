@@ -59,7 +59,7 @@ lvgl:
       on_load:
         - script.execute:
             id: script_page_loaded
-            page: 3
+            page: ${settings_page_index}
         - script.execute: script_settings_sync
       on_swipe_left:
         - script.execute: script_next_page

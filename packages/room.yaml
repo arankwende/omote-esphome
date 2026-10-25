@@ -425,6 +425,7 @@ lvgl:
                   side: 1
         # Both blinds at once
         - button:
+            id: btn_blinds_open_all
             x: 5
             y: 270
             width: 112
@@ -447,6 +448,7 @@ lvgl:
                   data:
                     entity_id: ${cover_entity_left}, ${cover_entity_right}
         - button:
+            id: btn_blinds_close_all
             x: 123
             y: 270
             width: 112

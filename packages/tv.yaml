@@ -37,6 +37,9 @@ text_sensor:
             - lvgl.label.update:
                 id: lbl_tv_play_pause
                 text: "\U000F040A"
+      - lvgl.widget.update:
+          id: lbl_tv_power_icon
+          text_color: !lambda 'return lv_color_hex(x == "off" || x == "standby" || x == "unavailable" ? 0xE74C3C : 0x2ECC71);'
   # TV input -> highlight the matching app button (#10)
   - platform: homeassistant
     id: tv_source
@@ -45,8 +48,8 @@ text_sensor:
     on_value:
       - lambda: |-
           const std::pair<lv_obj_t *, const char *> apps[] = {
-              {id(btn_jellyfin), "Jellyfin"}, {id(btn_prime), "Prime Video"}, {id(btn_netflix), "Netflix"},
-              {id(btn_hbo), "HBO Max"}, {id(btn_disney), "Disney+"}};
+              {id(btn_app_1), "${app_1_source}"}, {id(btn_app_2), "${app_2_source}"}, {id(btn_app_3), "${app_3_source}"},
+              {id(btn_app_4), "${app_4_source}"}, {id(btn_app_5), "${app_5_source}"}};
           for (auto &a : apps) {
             if (x == a.second) lv_obj_add_state(a.first, LV_STATE_CHECKED);
             else lv_obj_remove_state(a.first, LV_STATE_CHECKED);
@@ -195,50 +198,50 @@ script:
           data:
             entity_id: ${tv_media_player}
 
-  - id: script_launch_jellyfin
+  - id: script_launch_app_1
     then:
-      - logger.log: "Launching Jellyfin"
+      - logger.log: "Launching ${app_1_source}"
       - homeassistant.action:
           action: media_player.select_source
           data:
             entity_id: ${tv_media_player}
-            source: "Jellyfin"
+            source: "${app_1_source}"
 
-  - id: script_launch_prime
+  - id: script_launch_app_2
     then:
-      - logger.log: "Launching Prime Video"
+      - logger.log: "Launching ${app_2_source}"
       - homeassistant.action:
           action: media_player.select_source
           data:
             entity_id: ${tv_media_player}
-            source: "Prime Video"
+            source: "${app_2_source}"
 
-  - id: script_launch_netflix
+  - id: script_launch_app_3
     then:
-      - logger.log: "Launching Netflix"
+      - logger.log: "Launching ${app_3_source}"
       - homeassistant.action:
           action: media_player.select_source
           data:
             entity_id: ${tv_media_player}
-            source: "Netflix"
+            source: "${app_3_source}"
 
-  - id: script_launch_hbo
+  - id: script_launch_app_4
     then:
-      - logger.log: "Launching HBO Max"
+      - logger.log: "Launching ${app_4_source}"
       - homeassistant.action:
           action: media_player.select_source
           data:
             entity_id: ${tv_media_player}
-            source: "HBO Max"
+            source: "${app_4_source}"
 
-  - id: script_launch_disney
+  - id: script_launch_app_5
     then:
-      - logger.log: "Launching Disney+"
+      - logger.log: "Launching ${app_5_source}"
       - homeassistant.action:
           action: media_player.select_source
           data:
             entity_id: ${tv_media_player}
-            source: "Disney+"
+            source: "${app_5_source}"
 
 lvgl:
   pages:
@@ -291,13 +294,16 @@ lvgl:
             y: 32
             width: 46
             height: 54
-            bg_color: 0xC62828
+            bg_color: 0x2A2A2A
             scrollable: false
             widgets:
+              # red = TV off / standby, green = on (from the TV media player state)
               - label:
+                  id: lbl_tv_power_icon
                   align: center
                   text_font: mdi_20
                   text: "\U000F0425"
+                  text_color: 0xE74C3C
             on_click:
               - script.execute: script_tv_power_toggle
 
@@ -396,12 +402,12 @@ lvgl:
 
         # ===== APP LAUNCHER (brand colour + name) =====
         - button:
-            id: btn_jellyfin
+            id: btn_app_1
             x: 5
             y: 214
             width: 73
             height: 48
-            bg_color: 0x00A4DC
+            bg_color: ${app_1_bg_color}
             checked:
               border_width: 3
               border_color: 0xFFFFFF
@@ -409,17 +415,18 @@ lvgl:
             widgets:
               - label:
                   align: center
-                  text_font: roboto_14
-                  text: "Jellyfin"
+                  text_font: ${app_1_font}
+                  text: "${app_1_text}"
+                  text_color: ${app_1_text_color}
             on_click:
-              - script.execute: script_launch_jellyfin
+              - script.execute: script_launch_app_1
         - button:
-            id: btn_prime
+            id: btn_app_2
             x: 83
             y: 214
             width: 73
             height: 48
-            bg_color: 0x00A8E1
+            bg_color: ${app_2_bg_color}
             checked:
               border_width: 3
               border_color: 0xFFFFFF
@@ -427,17 +434,18 @@ lvgl:
             widgets:
               - label:
                   align: center
-                  text_font: roboto_14
-                  text: "Prime"
+                  text_font: ${app_2_font}
+                  text: "${app_2_text}"
+                  text_color: ${app_2_text_color}
             on_click:
-              - script.execute: script_launch_prime
+              - script.execute: script_launch_app_2
         - button:
-            id: btn_netflix
+            id: btn_app_3
             x: 161
             y: 214
             width: 74
             height: 48
-            bg_color: 0xE50914
+            bg_color: ${app_3_bg_color}
             checked:
               border_width: 3
               border_color: 0xFFFFFF
@@ -445,17 +453,18 @@ lvgl:
             widgets:
               - label:
                   align: center
-                  text_font: roboto_14
-                  text: "Netflix"
+                  text_font: ${app_3_font}
+                  text: "${app_3_text}"
+                  text_color: ${app_3_text_color}
             on_click:
-              - script.execute: script_launch_netflix
+              - script.execute: script_launch_app_3
         - button:
-            id: btn_hbo
+            id: btn_app_4
             x: 5
             y: 268
             width: 113
             height: 46
-            bg_color: 0x5822B4
+            bg_color: ${app_4_bg_color}
             checked:
               border_width: 3
               border_color: 0xFFFFFF
@@ -463,17 +472,18 @@ lvgl:
             widgets:
               - label:
                   align: center
-                  text_font: roboto_14
-                  text: "HBO Max"
+                  text_font: ${app_4_font}
+                  text: "${app_4_text}"
+                  text_color: ${app_4_text_color}
             on_click:
-              - script.execute: script_launch_hbo
+              - script.execute: script_launch_app_4
         - button:
-            id: btn_disney
+            id: btn_app_5
             x: 122
             y: 268
             width: 113
             height: 46
-            bg_color: 0x113CCF
+            bg_color: ${app_5_bg_color}
             checked:
               border_width: 3
               border_color: 0xFFFFFF
@@ -481,7 +491,8 @@ lvgl:
             widgets:
               - label:
                   align: center
-                  text_font: roboto_14
-                  text: "Disney+"
+                  text_font: ${app_5_font}
+                  text: "${app_5_text}"
+                  text_color: ${app_5_text_color}
             on_click:
-              - script.execute: script_launch_disney
+              - script.execute: script_launch_app_5

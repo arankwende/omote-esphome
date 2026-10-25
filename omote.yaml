@@ -1,8 +1,10 @@
-# OMOTE remote - ESPHome device configuration
+# OMOTE remote - Home Assistant music version
 #
-# This file holds YOUR settings (entities, names, IR codes, timeouts). The
-# firmware itself is split into feature packages under packages/:
+# Firmware entry point. Don't edit this file to configure your remote: create
+# a device file that includes it and overrides values from
+# packages/defaults.yaml (see examples/omote-remote.yaml).
 #
+#   defaults.yaml  default values for all settings
 #   core.yaml      device, WiFi, API, OTA, time
 #   hardware.yaml  OMOTE Rev5 board (display, touch, keypad chip, accelerometer, IR)
 #   power.yaml     battery, dim / screen-off / deep sleep, wake handling
@@ -12,111 +14,9 @@
 #   music.yaml     Music page via Home Assistant
 #   tv.yaml        TV page (IR, TV media player, apps)
 #   settings.yaml  Settings page + adjustable settings
-#
-# To leave a page out, remove its line below (and the matching page dot is
-# simply unused). omote-music-assistant.yaml builds on this file.
-
-substitutions:
-  name: omote
-  friendly_name: Omote Remote
-  # Keys live in secrets.yaml (omote_api_key: base64 32-byte key, omote_ota_password)
-  ha_api_key: !secret omote_api_key
-  ota_key: !secret omote_ota_password
-  # Music Assistant player entity (without the media_player. prefix)
-  ma_player: "room_speaker"
-  # Home Assistant Entity IDs (update these to match your setup)
-  climate_entity: climate.room_ac
-  light_entity: light.room_light
-  cover_entity_left: cover.room_blinds_left
-  cover_entity_right: cover.room_blinds_right
-  temp_sensor_entity: sensor.room_temperature
-  tv_media_player: media_player.room_tv
-  # Automation scripts for physical buttons (customize these)
-  # Row 1: Button 1 and Button 4
-  automation_row1_btn1: script.your_automation_1
-  automation_row1_btn4: script.your_automation_2
-  # Row 2: Button 1 and Button 4
-  automation_row2_btn1: script.your_automation_3
-  automation_row2_btn4: script.your_automation_4
-  # Row 4: Button 1 and Button 4
-  automation_row4_btn1: script.your_automation_5
-  automation_row4_btn4: script.your_automation_6
-  # Scene buttons
-  automation_scene_1: script.scene_1
-  automation_scene_2: script.scene_2
-  automation_scene_3: script.scene_3
-  automation_scene_4: script.scene_4
-  # Record button
-  automation_record: script.record_action
-  # Names shown on screen when the keys above are pressed
-  automation_row1_btn1_name: "Automation 1"
-  automation_row1_btn4_name: "Automation 2"
-  automation_scene_1_name: "Scene 1"
-  automation_scene_2_name: "Scene 2"
-  automation_scene_3_name: "Scene 3"
-  automation_scene_4_name: "Scene 4"
-  automation_record_name: "Record"
-  # What the music keys need to work: 2 = Home Assistant, 1 = WiFi only
-  # (omote-music-assistant.yaml sets 1 because it talks to MA directly)
-  music_needs: "2"
-  # TV remote entity for DPAD and channel buttons
-  tv_remote_entity: remote.room_tv
-  # Room icon for status bar - pick one:
-  #   Bedroom:     "\U000F02E3" (bed)
-  #   Living room: "\U000F04B9" (sofa)
-  #   Baby room:   "\U000F0F39" (baby bottle)
-  #   Kitchen:     "\U000F04DE" (stove)
-  #   Home:        "\U000F02DC" (home - default)
-  room_icon: "\U000F02E3"
-  # Weather entity for status bar
-  weather_entity: weather.home
-  # Home Assistant base URL (needed to resolve relative entity_picture URLs)
-  ha_url: "http://homeassistant.local:8123"
-  # Music Assistant playlist URIs for quick-play buttons (find these in MA library)
-  ma_morning_playlist: "library://playlist/1"
-  ma_evening_playlist: "library://playlist/2"
-  # TV IR codes (first put the proper protocol action in remote_type, then fill the rest)
-  # Format: depending on the protocol, it could be just "data:" as with pronto or address, command (hex values), you need to check which case and comment data and uncomment the others if its address command
-  remote_type: transmit_pronto
-#  tv_ir_address: "0x00"
-  tv_ir_cmd_up: "0000 006D 0013 0000 006A 001F 0014 0020 0014 000F 0014 000F 0036 0032 0012 0010 0013 000F 0013 000F 0013 0010 0013 000F 0013 000F 0012 0010 0013 0010 0024 0020 0023 0010 0012 0022 0012 0011 0011 0011 0011 0180 "
-  tv_ir_cmd_down: "0000 006D 0013 0000 006A 001F 0014 001F 0014 000F 0013 000F 0014 0020 0025 000F 0013 000F 0013 0010 0013 000F 0012 0010 0012 0010 0013 0010 0013 000F 0013 000F 0023 0021 0024 0010 0012 0021 0012 0010 0023 0180 "
-  tv_ir_cmd_left: "0000 006D 0013 0000 0068 0022 0011 0022 0011 0011 0012 0011 0011 0022 0022 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0022 0022 0023 0011 0011 0022 0022 0022 0011 0180 "
-  tv_ir_cmd_right: "0000 006D 0013 0000 0069 0021 0011 0021 0013 0010 0012 0010 0034 0033 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0011 0011 0022 0022 0022 0012 0011 0011 0011 0022 0011 0011 0011 0180 "
-  tv_ir_cmd_select: "0000 006D 0013 0000 0069 0021 0011 0021 0013 0010 0012 0010 0034 0033 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0011 0011 0022 0022 0022 0012 0011 0011 0011 0022 0011 0011 0011 0180 "
-  tv_ir_cmd_channel_up: "0000 006D 0015 0000 0068 0021 0012 0022 0011 0011 0011 0011 0012 0022 0022 0011 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0022 0022 0012 0011 0011 0011 0011 0011 0011 0012 0011 0180 "
-  tv_ir_cmd_channel_down: "0000 006D 0014 0000 0069 0022 0011 0022 0011 0011 0011 0012 0033 0033 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0022 0011 0011 0022 0011 0011 0012 0180 "
-  tv_ir_cmd_volume_up: "0000 006D 0015 0000 0069 0021 0013 0020 0014 000F 0014 000F 0014 0020 0025 000F 0013 000F 0013 0010 0013 000F 0012 0010 0011 0011 0013 0010 0013 000F 0013 000F 0012 0011 0012 0010 0023 0021 0012 0010 0012 0011 0012 0011 0011 0180"
-  tv_ir_cmd_volume_down: "0000 006D 0013 0000 0069 0020 0014 0020 0014 000F 0014 000F 0036 0031 0013 0010 0012 0010 0013 000F 0013 0010 0013 000F 0013 000F 0012 0010 0013 0010 0012 0010 0012 0010 0023 0022 0012 0011 0011 0011 0022 0180 "
-  tv_ir_cmd_mute: "0000 006D 0014 0000 0067 0022 0013 0020 0014 000F 0013 000F 0013 0020 0024 0010 0012 0010 0012 0010 0013 000F 0013 0010 0012 0010 0012 0010 0012 0011 0012 0011 0011 0011 0011 0011 0011 0011 0023 0011 0011 0022 0022 0180 "
-  tv_ir_cmd_power_toggle: "0000 006D 0014 0000 0069 0022 0011 0022 0011 0011 0011 0012 0033 0033 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0011 0011 0011 0011 0011 0011 0012 0011 0022 0011 0011 0022 0011 0011 0012 0180 "
-  tv_ir_cmd_exit: "0x0A"
-  tv_ir_cmd_rewind: "0x0E"
-  tv_ir_cmd_fastforward: "0x0F"
-  #IP Configuration for static IP - to enable it, first un comment the section in Wifi
-  static_ip: 192.168.1.101
-  gateway: 192.168.1.1
-  subnet: 255.255.255.0
-  dns1: 192.168.1.1
-  dns2: 8.8.8.8
-  # Power management: seconds without activity (touch, key press or motion).
-  # The original OMOTE firmware sleeps after 20s; ESPHome has to reconnect
-  # WiFi + API on every wake (~2-4s), so a slightly longer window is friendlier.
-  screen_dim_timeout: "15"
-  screen_off_timeout: "30"
-  sleep_timeout: "60"
-  screen_brightness: "1.0"
-  screen_dim_brightness: "0.25"
-  # Backlight level after sunset (sun.sun below_horizon)
-  screen_night_brightness: "0.35"
-  # UI names
-  light_name: "Room light"
-  blinds_left_name: "Left"
-  blinds_right_name: "Right"
-  ma_morning_name: "Morning"
-  ma_evening_name: "Evening"
 
 packages:
+  defaults: !include packages/defaults.yaml
   core: !include packages/core.yaml
   hardware: !include packages/hardware.yaml
   power: !include packages/power.yaml

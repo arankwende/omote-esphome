@@ -117,6 +117,24 @@ globals:
     initial_value: "false"
 
 script:
+  # D-pad on the music page: up/down volume, left/right track, centre play/pause
+  - id: script_music_dpad
+    parameters:
+      dir: string
+    then:
+      - script.execute:
+          id: script_toast
+          text: !lambda |-
+            return std::string(dir == "up" ? "Volume +" : dir == "down" ? "Volume -" : dir == "left" ? "Previous"
+                             : dir == "right" ? "Next" : "Play / Pause");
+          needs: ${music_needs}
+      - lambda: |-
+          if (dir == "up") id(script_volume_up).execute();
+          else if (dir == "down") id(script_volume_down).execute();
+          else if (dir == "left") id(script_music_prev).execute();
+          else if (dir == "right") id(script_music_next).execute();
+          else id(script_music_play_pause).execute();
+
   # Music status caption: PLAYING / PAUSED / IDLE ...
   - id: set_music_status
     parameters:

@@ -221,6 +221,16 @@ script:
 
   # Deep sleep script. Mirrors the original OMOTE Rev5 enterSleep():
   # peripherals off, pins parked and held, then ext1 wake on keypad/motion.
+  # Light the keypad for a while; restart mode extends it on every new motion
+  - id: script_keypad_backlight_pulse
+    mode: restart
+    then:
+      - light.turn_on:
+          id: keypad_backlight
+          brightness: 100%
+      - delay: ${keypad_backlight_ms}ms
+      - light.turn_off: keypad_backlight
+
   - id: script_enter_deep_sleep
     mode: single
     parameters:

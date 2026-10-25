@@ -5,6 +5,7 @@
 binary_sensor:
   # ==================== TCA8418 MATRIX KEYPAD BUTTONS ====================
   #
+
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
     id: btn_1
@@ -17,10 +18,9 @@ binary_sensor:
           text: "${automation_row1_btn1_name}"
           needs: 2
       - logger.log: "Button 1 - launching automation"
-      - homeassistant.action:
-          action: script.turn_on
-          data:
-            entity_id: ${automation_row1_btn1}
+      - script.execute:
+          id: script_ha_run
+          entity: "${automation_row1_btn1}"
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -56,12 +56,12 @@ binary_sensor:
           text: "${automation_row1_btn4_name}"
           needs: 2
       - logger.log: "Button 4 - launching automation"
-      - homeassistant.action:
-          action: script.turn_on
-          data:
-            entity_id: ${automation_row1_btn4}
+      - script.execute:
+          id: script_ha_run
+          entity: "${automation_row1_btn4}"
 
   # Media Buttons around the DPad - Page-aware behavior
+
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
     id: btn_media_1
@@ -133,6 +133,7 @@ binary_sensor:
             - logger.log: "Media Button 4 pressed"
 
   # Dpad buttons - TV navigation
+
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
     id: btn_dpad_up
@@ -141,10 +142,8 @@ binary_sensor:
     name: "DPAD Up"
     on_press:
       - script.execute:
-          id: script_toast
-          text: "TV: Up"
-          needs: 0
-      - script.execute: script_tv_up
+          id: script_dpad
+          dir: "up"
       # hold to repeat (stops after 8s in case a release is ever missed)
       - globals.set:
           id: key_repeat_until
@@ -155,10 +154,8 @@ binary_sensor:
             lambda: 'return id(btn_dpad_up).state && (int32_t) (id(key_repeat_until) - millis()) > 0;'
           then:
             - script.execute:
-                id: script_toast
-                text: "TV: Up"
-                needs: 0
-            - script.execute: script_tv_up
+                id: script_dpad
+                dir: "up"
             - delay: 160ms
 
   - platform: tca8418_keypad
@@ -169,10 +166,8 @@ binary_sensor:
     name: "DPAD Down"
     on_press:
       - script.execute:
-          id: script_toast
-          text: "TV: Down"
-          needs: 0
-      - script.execute: script_tv_down
+          id: script_dpad
+          dir: "down"
       # hold to repeat (stops after 8s in case a release is ever missed)
       - globals.set:
           id: key_repeat_until
@@ -183,10 +178,8 @@ binary_sensor:
             lambda: 'return id(btn_dpad_down).state && (int32_t) (id(key_repeat_until) - millis()) > 0;'
           then:
             - script.execute:
-                id: script_toast
-                text: "TV: Down"
-                needs: 0
-            - script.execute: script_tv_down
+                id: script_dpad
+                dir: "down"
             - delay: 160ms
 
   - platform: tca8418_keypad
@@ -197,10 +190,8 @@ binary_sensor:
     name: "DPAD Left"
     on_press:
       - script.execute:
-          id: script_toast
-          text: "TV: Left"
-          needs: 0
-      - script.execute: script_tv_left
+          id: script_dpad
+          dir: "left"
       # hold to repeat (stops after 8s in case a release is ever missed)
       - globals.set:
           id: key_repeat_until
@@ -211,10 +202,8 @@ binary_sensor:
             lambda: 'return id(btn_dpad_left).state && (int32_t) (id(key_repeat_until) - millis()) > 0;'
           then:
             - script.execute:
-                id: script_toast
-                text: "TV: Left"
-                needs: 0
-            - script.execute: script_tv_left
+                id: script_dpad
+                dir: "left"
             - delay: 160ms
 
   - platform: tca8418_keypad
@@ -225,10 +214,8 @@ binary_sensor:
     name: "DPAD Right"
     on_press:
       - script.execute:
-          id: script_toast
-          text: "TV: Right"
-          needs: 0
-      - script.execute: script_tv_right
+          id: script_dpad
+          dir: "right"
       # hold to repeat (stops after 8s in case a release is ever missed)
       - globals.set:
           id: key_repeat_until
@@ -239,10 +226,8 @@ binary_sensor:
             lambda: 'return id(btn_dpad_right).state && (int32_t) (id(key_repeat_until) - millis()) > 0;'
           then:
             - script.execute:
-                id: script_toast
-                text: "TV: Right"
-                needs: 0
-            - script.execute: script_tv_right
+                id: script_dpad
+                dir: "right"
             - delay: 160ms
 
   - platform: tca8418_keypad
@@ -253,12 +238,9 @@ binary_sensor:
     name: "DPAD Center"
     on_press:
       - script.execute:
-          id: script_toast
-          text: "TV: OK"
-          needs: 0
-      - script.execute: script_tv_select
+          id: script_dpad
+          dir: "center"
 
-  # Volume Buttons - Page-aware (Room/Music = media player, TV = TV IR)
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
     id: btn_volume_up
@@ -359,6 +341,7 @@ binary_sensor:
             - script.execute: script_music_mute
 
   # Channel/Record Buttons - TV remote
+
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
     id: btn_channel_record
@@ -377,10 +360,9 @@ binary_sensor:
             - script.execute: script_tv_media_play_pause
           else:
             - logger.log: "Record - launching automation"
-            - homeassistant.action:
-                action: script.turn_on
-                data:
-                  entity_id: ${automation_record}
+            - script.execute:
+                id: script_ha_run
+                entity: "${automation_record}"
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -439,6 +421,7 @@ binary_sensor:
             - delay: 160ms
 
   # Scene Buttons - Launch automations
+
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
     id: btn_scene_1
@@ -451,10 +434,9 @@ binary_sensor:
           text: "${automation_scene_1_name}"
           needs: 2
       - logger.log: "Scene 1 - launching automation"
-      - homeassistant.action:
-          action: script.turn_on
-          data:
-            entity_id: ${automation_scene_1}
+      - script.execute:
+          id: script_ha_run
+          entity: "${automation_scene_1}"
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -468,10 +450,9 @@ binary_sensor:
           text: "${automation_scene_2_name}"
           needs: 2
       - logger.log: "Scene 2 - launching automation"
-      - homeassistant.action:
-          action: script.turn_on
-          data:
-            entity_id: ${automation_scene_2}
+      - script.execute:
+          id: script_ha_run
+          entity: "${automation_scene_2}"
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -485,10 +466,9 @@ binary_sensor:
           text: "${automation_scene_3_name}"
           needs: 2
       - logger.log: "Scene 3 - launching automation"
-      - homeassistant.action:
-          action: script.turn_on
-          data:
-            entity_id: ${automation_scene_3}
+      - script.execute:
+          id: script_ha_run
+          entity: "${automation_scene_3}"
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -502,10 +482,9 @@ binary_sensor:
           text: "${automation_scene_4_name}"
           needs: 2
       - logger.log: "Scene 4 - launching automation"
-      - homeassistant.action:
-          action: script.turn_on
-          data:
-            entity_id: ${automation_scene_4}
+      - script.execute:
+          id: script_ha_run
+          entity: "${automation_scene_4}"
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -527,3 +506,68 @@ globals:
   - id: key_repeat_until
     type: uint32_t
     initial_value: "0"
+
+script:
+  # Run a Home Assistant script, automation or scene by entity id, using the
+  # action that matches its domain (script.turn_on can't run an automation)
+  - id: script_ha_run
+    parameters:
+      entity: string
+    then:
+      - if:
+          condition:
+            lambda: 'return entity.rfind("automation.", 0) == 0;'
+          then:
+            - homeassistant.action:
+                action: automation.trigger
+                data:
+                  entity_id: !lambda 'return entity;'
+          else:
+            - if:
+                condition:
+                  lambda: 'return entity.rfind("scene.", 0) == 0;'
+                then:
+                  - homeassistant.action:
+                      action: scene.turn_on
+                      data:
+                        entity_id: !lambda 'return entity;'
+                else:
+                  - if:
+                      condition:
+                        lambda: 'return entity.rfind("script.", 0) == 0;'
+                      then:
+                        - homeassistant.action:
+                            action: script.turn_on
+                            data:
+                              entity_id: !lambda 'return entity;'
+                      else:
+                        - homeassistant.action:
+                            action: homeassistant.turn_on
+                            data:
+                              entity_id: !lambda 'return entity;'
+
+  # D-pad: controls music on the music page, the TV everywhere else
+  - id: script_dpad
+    parameters:
+      dir: string
+    then:
+      - if:
+          condition:
+            lambda: 'return id(current_page) == 1;'
+          then:
+            - script.execute:
+                id: script_music_dpad
+                dir: !lambda 'return dir;'
+          else:
+            - script.execute:
+                id: script_toast
+                text: !lambda |-
+                  return std::string(dir == "up" ? "TV: Up" : dir == "down" ? "TV: Down" : dir == "left" ? "TV: Left"
+                                   : dir == "right" ? "TV: Right" : "TV: OK");
+                needs: 0
+            - lambda: |-
+                if (dir == "up") id(script_tv_up).execute();
+                else if (dir == "down") id(script_tv_down).execute();
+                else if (dir == "left") id(script_tv_left).execute();
+                else if (dir == "right") id(script_tv_right).execute();
+                else id(script_tv_select).execute();

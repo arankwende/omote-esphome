@@ -40,18 +40,21 @@ binary_sensor:
     on_press:
       - logger.log: "Motion detected - waking screen"
       - script.execute: script_reset_backlight_timeout
-      - light.turn_on:
-          id: keypad_backlight
-          brightness: 100%
+      # The keypad backlight only helps (and is only visible) in the dark
+      - if:
+          condition:
+            lambda: 'return id(is_nighttime);'
+          then:
+            - script.execute: script_keypad_backlight_pulse
       # Clear the latched interrupt right away so the next movement retriggers
-      # (the keypad backlight is switched off by the screen-off timer)
       - lis3dh_motion.clear_interrupt: accel
 
 i2c:
   id: i2c_bus
   sda: GPIO20
   scl: GPIO19
-  frequency: 100kHz  
+  # All bus devices (TCA8418, LIS3DH, FT6336, MAX17048) support 400 kHz
+  frequency: 400kHz
   sda_pullup_enabled: true  
   scl_pullup_enabled: true 
   scan: true

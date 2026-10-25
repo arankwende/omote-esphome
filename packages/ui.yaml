@@ -65,6 +65,22 @@ globals:
 
 script:
   # Page indicator dots + current_page (called from each page's on_load)
+  # Centre one dot per page under the clock (up to 5 pages)
+  - id: script_layout_page_dots
+    then:
+      - lambda: |-
+          lv_obj_t *dots[] = {id(dot_page_0), id(dot_page_1), id(dot_page_2), id(dot_page_3), id(dot_page_4)};
+          const int n = ${page_count};
+          const int x0 = 120 - (n * 6 + (n - 1) * 2) / 2;
+          for (int i = 0; i < 5; i++) {
+            if (i < n) {
+              lv_obj_set_x(dots[i], x0 + i * 8);
+              lv_obj_remove_flag(dots[i], LV_OBJ_FLAG_HIDDEN);
+            } else {
+              lv_obj_add_flag(dots[i], LV_OBJ_FLAG_HIDDEN);
+            }
+          }
+
   - id: script_page_loaded
     parameters:
       page: int
@@ -74,8 +90,8 @@ script:
           value: !lambda 'return page;'
       - lambda: |-
           if (id(boot_done) && id(saved_page) != page) id(saved_page) = page;
-          lv_obj_t *dots[] = {id(dot_page_0), id(dot_page_1), id(dot_page_2), id(dot_page_3)};
-          for (int i = 0; i < 4; i++)
+          lv_obj_t *dots[] = {id(dot_page_0), id(dot_page_1), id(dot_page_2), id(dot_page_3), id(dot_page_4)};
+          for (int i = 0; i < ${page_count}; i++)
             lv_obj_set_style_bg_color(dots[i], lv_color_hex(i == page ? 0xFFFFFF : 0x555555), LV_PART_MAIN);
 
   # Short pill at the bottom of the screen confirming what a physical key did.
@@ -134,7 +150,8 @@ script:
           time: 300ms
 
 font:
-  - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
+  # Material Design Icons, pinned (codepoints can shift between versions)
+  - file: "https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf"
     id: mdi_20
     size: 20
     bpp: 4
@@ -200,7 +217,8 @@ font:
       - "\U000F04DE"  # mdi:stove (kitchen)
       - "\U000F02DC"  # mdi:home (default)
       - "\U000F04DB"  # mdi:stop (blinds)
-  - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
+  # Material Design Icons, pinned (codepoints can shift between versions)
+  - file: "https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf"
     id: mdi_36
     size: 36
     bpp: 4
@@ -214,21 +232,26 @@ font:
   - file: "gfonts://Roboto"
     id: roboto_12
     size: 12
+    glyphsets: [GF_Latin_Core]  # accents and ñ (default set is ASCII-only)
     bpp: 4
   - file: "gfonts://Roboto"
     id: roboto_14
     size: 14
+    glyphsets: [GF_Latin_Core]  # accents and ñ (default set is ASCII-only)
     bpp: 4
   - file: "gfonts://Roboto"
     id: roboto_18
     size: 18
+    glyphsets: [GF_Latin_Core]  # accents and ñ (default set is ASCII-only)
     bpp: 4
   - file: "gfonts://Roboto"
     id: roboto_24
     size: 24
+    glyphsets: [GF_Latin_Core]  # accents and ñ (default set is ASCII-only)
     bpp: 4
 
 lvgl:
+  id: lvgl_comp
   displays:
     - LCD
   touchscreens:
@@ -330,6 +353,17 @@ lvgl:
           bg_color: 0x555555
           border_width: 0
           clickable: false
+      - obj:
+          id: dot_page_4
+          x: 137
+          y: 22
+          width: 6
+          height: 6
+          radius: 3
+          bg_color: 0x555555
+          border_width: 0
+          clickable: false
+          hidden: true
       - label:
           id: lbl_battery
           x: 190

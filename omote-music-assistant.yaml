@@ -18,13 +18,24 @@
 #   2. Fill in ma_url and ma_player_id below. MA player ids are NOT Home
 #      Assistant entity ids; find them at http://<ma-host>:8095/api-docs
 #      (try `players/all`) or in the MA web UI player settings.
-#   3. List up to 4 speakers that can join this player (leave an id empty to
-#      hide that slot).
+#   3. Fill in the Speakers page rooms (room1..room6): name, MDI icon and MA
+#      player_id (leave the id empty to hide that slot).
 #   4. Flash this file instead of omote.yaml.
 
 packages:
-  omote: !include omote.yaml
+  defaults: !include packages/defaults.yaml
+  core: !include packages/core.yaml
+  hardware: !include packages/hardware.yaml
+  power: !include packages/power.yaml
+  keypad: !include packages/keypad.yaml
+  ui: !include packages/ui.yaml
+  # Pages, in swipe order
+  room: !include packages/room.yaml
+  music: !include packages/music.yaml
   music_assistant: !include packages/music-assistant.yaml
+  tv: !include packages/tv.yaml
+  speakers: !include packages/speakers-ma.yaml
+  settings: !include packages/settings.yaml
 
 substitutions:
   # Music Assistant server (no trailing slash) and long-lived token
@@ -34,14 +45,29 @@ substitutions:
   music_needs: "1"
   # MA player_id of the speaker this remote controls (group leader)
   ma_player_id: "your_ma_player_id"
-  # Speakers that can be joined to the player above (empty id = hidden)
-  ma_speaker_1_id: "kitchen_player_id"
-  ma_speaker_1_name: "Kitchen"
-  ma_speaker_2_id: "living_player_id"
-  ma_speaker_2_name: "Living room"
-  ma_speaker_3_id: ""
-  ma_speaker_3_name: ""
-  ma_speaker_4_id: ""
-  ma_speaker_4_name: ""
   # Quick-play playlists are MA URIs (ma_morning_playlist / ma_evening_playlist
   # from omote.yaml are reused; override them here if needed)
+  # Five pages: Speakers sits before Settings
+  page_count: "5"
+  speakers_page_index: "3"
+  settings_page_index: "4"
+  # Speakers page: up to 6 rooms. ma_id = Music Assistant player_id
+  # (empty = slot hidden). Icons are MDI codepoints and must all differ.
+  room1_name: "Kitchen"
+  room1_icon: "\U000F04DE"
+  room1_ma_id: ""
+  room2_name: "Living room"
+  room2_icon: "\U000F04B9"
+  room2_ma_id: ""
+  room3_name: "Bedroom"
+  room3_icon: "\U000F02E3"
+  room3_ma_id: ""
+  room4_name: "Office"
+  room4_icon: "\U000F04C3"
+  room4_ma_id: ""
+  room5_name: "Kids"
+  room5_icon: "\U000F0F39"
+  room5_ma_id: ""
+  room6_name: "Bathroom"
+  room6_icon: "\U000F0E2A"
+  room6_ma_id: ""
