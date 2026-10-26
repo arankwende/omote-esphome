@@ -6,9 +6,8 @@
 substitutions:
   name: omote
   friendly_name: Omote Remote
-  # Keys live in secrets.yaml (omote_api_key: base64 32-byte key, omote_ota_password)
+  # API encryption key (also used for OTA uploads) lives in secrets.yaml
   ha_api_key: !secret omote_api_key
-  ota_key: !secret omote_ota_password
   # Music Assistant player entity (without the media_player. prefix)
   ma_player: "room_speaker"
   # Home Assistant Entity IDs (update these to match your setup)
@@ -135,3 +134,5 @@ substitutions:
   app_5_font: roboto_14
   app_5_bg_color: "0x113CCF"
   app_5_text_color: "0xFFFFFF"
+  # Logger level: INFO keeps the remote responsive; DEBUG for troubleshooting
+  log_level: INFO

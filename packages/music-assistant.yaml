@@ -467,13 +467,16 @@ script:
 # Poll MA every 3s while the music page is visible (not while the screen is
 # off or asleep), backing off for 30s after an error.
 interval:
-  - interval: 3s
+  - interval: 5s
     then:
       - if:
           condition:
+            # Each poll briefly blocks the UI, so skip it while the user is
+            # touching / pressing keys (commands still refresh right after)
             lambda: |-
               return !id(device_sleeping) && id(screen_state) != 2 && (id(current_page) == 1 || id(current_page) == ${speakers_page_index}) &&
-                     (int32_t) (millis() - id(ma_backoff_until)) >= 0;
+                     (int32_t) (millis() - id(ma_backoff_until)) >= 0 &&
+                     millis() - id(last_activity_time) > 2000;
           then:
             - script.execute: script_ma_poll
             - if:

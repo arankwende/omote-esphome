@@ -114,6 +114,8 @@ touchscreen:
   - platform: ft63x6
     id: my_touch
     display: LCD
+    # default is 50ms; polling at 20ms makes taps and swipes register sooner
+    update_interval: 20ms
     address: 0x38
     calibration:
       x_min: 0

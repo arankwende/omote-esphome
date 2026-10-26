@@ -78,11 +78,10 @@ Setup: add `ma_token` (an MA long-lived token) to `secrets.yaml`, set `ma_url`, 
 wifi_ssid: "..."
 wifi_password: "..."
 omote_api_key: "..."        # 32-byte base64 API encryption key (the old ha_api_key value)
-omote_ota_password: "..."   # the old ota_key value
 ma_token: "..."             # only for omote-music-assistant.yaml
 ```
 
-Keep `omote_ota_password` equal to the OTA password already on the remote, otherwise the next wireless update will be rejected.
+OTA uploads are encrypted with the same `omote_api_key`; there is no separate OTA password.
 
 ## Settings
 

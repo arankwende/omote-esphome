@@ -73,7 +73,11 @@ psram:
   speed: 80MHz
 
 logger:
-  level: DEBUG
+  level: ${log_level}
+  # The board's USB port goes through a USB-UART bridge on UART0; the S3's
+  # built-in USB (GPIO19/20) is wired to the I2C bus, so ESPHome's default
+  # USB_SERIAL_JTAG logger would write to a port nothing can read.
+  hardware_uart: UART0
 
 # Enable Home Assistant API
 api:
@@ -100,13 +104,10 @@ api:
         stale: true
 
 ota:
-  # TODO(after this firmware is on the remote): ESPHome now prefers OTA
-  # encryption with the API key over a password. Switching in one step would
-  # make the next wireless upload fail, because the firmware currently on the
-  # remote only accepts the password. Flash this version first, then replace
-  # `password:` with `encryption: {key: ${ha_api_key}}` and flash again.
+  # Uploads are encrypted and authenticated with the API encryption key
+  # (an empty encryption block reuses it)
   - platform: esphome
-    password: ${ota_key}
+    encryption: {}
     on_begin:
       - switch.turn_on: stay_awake
 

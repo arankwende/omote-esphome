@@ -141,13 +141,13 @@ script:
     then:
       - lvgl.page.next:
           animation: MOVE_LEFT
-          time: 300ms
+          time: 200ms
 
   - id: script_prev_page
     then:
       - lvgl.page.previous:
           animation: MOVE_RIGHT
-          time: 300ms
+          time: 200ms
 
 font:
   # Material Design Icons, pinned (codepoints can shift between versions)
@@ -233,21 +233,33 @@ font:
     id: roboto_12
     size: 12
     glyphsets: [GF_Latin_Core]  # accents and ñ (default set is ASCII-only)
+    # Roboto lacks the set's 11 stand-alone combining marks; precomposed
+    # letters (á, é, ñ...) are all there
+    ignore_missing_glyphs: true
     bpp: 4
   - file: "gfonts://Roboto"
     id: roboto_14
     size: 14
     glyphsets: [GF_Latin_Core]  # accents and ñ (default set is ASCII-only)
+    # Roboto lacks the set's 11 stand-alone combining marks; precomposed
+    # letters (á, é, ñ...) are all there
+    ignore_missing_glyphs: true
     bpp: 4
   - file: "gfonts://Roboto"
     id: roboto_18
     size: 18
     glyphsets: [GF_Latin_Core]  # accents and ñ (default set is ASCII-only)
+    # Roboto lacks the set's 11 stand-alone combining marks; precomposed
+    # letters (á, é, ñ...) are all there
+    ignore_missing_glyphs: true
     bpp: 4
   - file: "gfonts://Roboto"
     id: roboto_24
     size: 24
     glyphsets: [GF_Latin_Core]  # accents and ñ (default set is ASCII-only)
+    # Roboto lacks the set's 11 stand-alone combining marks; precomposed
+    # letters (á, é, ñ...) are all there
+    ignore_missing_glyphs: true
     bpp: 4
 
 lvgl:
@@ -256,8 +268,11 @@ lvgl:
     - LCD
   touchscreens:
     - my_touch
-  buffer_size: 10%  # Reduced from 25% to help with memory pressure
-  disp_bg_color: 0x000000
+  # 25% of the screen (~38 KB) fits in fast internal RAM: fewer, larger
+  # flushes than 10% make redraws and page slides noticeably smoother
+  buffer_size: 25%
+  bottom_layer:
+    bg_color: 0x000000
   # One consistent dark look. Buttons give a small "push" when pressed instead
   # of changing colour, so brand-coloured buttons keep their colour.
   theme:
