@@ -258,13 +258,33 @@ script:
           timeout: 3s
       - lambda: |-
           id(keypad).flush_events();
-          if (motion_wake) {
-            id(accel).clear_interrupt();  // also re-baselines the high-pass filter
-          } else {
-            id(accel).disable_motion_interrupt();  // re-armed on next boot
-          }
-      - delay: 50ms
+          // Disarm INT1 first and clear any pending latch while settling
+          id(accel).write_byte(0x30, 0x00);
+          uint8_t src = 0;
+          id(accel).read_byte(0x31, &src);
+      # Wait for any vibration from pressing power / putting the remote down to stop
+      - delay: 150ms
       - lambda: |-
+          if (motion_wake) {
+            const auto opt = id(cfg_motion_sensitivity).current_option();
+            const uint8_t ths = opt == "Low" ? 48 : (opt == "High" ? 20 : 32);
+            const uint8_t dur = opt == "Low" ? 3 : (opt == "High" ? 1 : 2);
+            id(accel).set_threshold(ths);
+            id(accel).set_duration(dur);
+            id(accel).write_byte(0x32, ths);
+            id(accel).write_byte(0x33, dur);
+            uint8_t ref = 0;
+            id(accel).read_byte(0x26, &ref);  // baseline resting orientation
+          }
+      # Wait one 25Hz sample period (40ms+) so the HPF output updates to ~0mg
+      - delay: 60ms
+      - lambda: |-
+          uint8_t src = 0;
+          id(accel).read_byte(0x31, &src);
+          if (motion_wake) {
+            id(accel).write_byte(0x30, 0x2A);  // arm ZHIE | YHIE | XHIE
+            id(accel).read_byte(0x31, &src);   // clear any edge latch
+          }
           // LCD bus lines LOW so nothing back-powers the switched-off panel
           for (auto pin : {GPIO_NUM_39, GPIO_NUM_40, GPIO_NUM_41, GPIO_NUM_42, GPIO_NUM_48,
                            GPIO_NUM_47, GPIO_NUM_21, GPIO_NUM_14, GPIO_NUM_13, GPIO_NUM_12,
@@ -323,6 +343,12 @@ interval:
           condition:
             lambda: 'return !id(device_sleeping);'
           then:
+            - lambda: |-
+                // Safety net: if INT1 (GPIO02) ever stayed latched LOW, release it
+                if (gpio_get_level(GPIO_NUM_2) == 0) {
+                  uint8_t src = 0;
+                  id(accel).read_byte(0x31, &src);
+                }
             - if:
                 condition:
                   lambda: |-

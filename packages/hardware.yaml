@@ -8,7 +8,9 @@ sensor:
   - platform: lis3dh_motion
     id: accel
     address: 0x19
-    threshold: 16  # ~256mg motion wake threshold (16mg/LSB at +/-2g)
+    data_rate: 25HZ
+    threshold: 32  # ~512mg motion wake threshold (16mg/LSB at +/-2g)
+    duration: 2    # require 2 consecutive samples (80ms at 25Hz) above threshold
     interrupt_active_low: true  # share ext1 ANY_LOW wake with the TCA8418 INT
     update_interval: 60s
     accel_x:
@@ -26,28 +28,42 @@ sensor:
 
 binary_sensor:
   # LIS3DH motion interrupt on INT1 (GPIO02)
-  # Active-LOW, latched until INT1_SRC is read (clear_interrupt)
+  # Active-LOW, latched until INT1_SRC is read
   - platform: gpio
     id: motion_detected
     name: "Motion Detected"
     pin:
       number: GPIO02
-      mode: INPUT
+      mode:
+        input: true
+        pullup: true
       inverted: true
       allow_other_uses: true  # also a deep sleep wake source
     filters:
-      - delayed_off: 100ms
+      - delayed_on: 20ms
     on_press:
-      - logger.log: "Motion detected - waking screen"
-      - script.execute: script_reset_backlight_timeout
-      # The keypad backlight only helps (and is only visible) in the dark
       - if:
           condition:
-            lambda: 'return id(is_nighttime);'
+            lambda: 'return !id(device_sleeping) && millis() > 2500;'
           then:
-            - script.execute: script_keypad_backlight_pulse
-      # Clear the latched interrupt right away so the next movement retriggers
-      - lis3dh_motion.clear_interrupt: accel
+            - if:
+                condition:
+                  lambda: 'return id(lift_to_wake).state || id(screen_state) == 0;'
+                then:
+                  - logger.log: "Motion detected - waking screen"
+                  - script.execute: script_reset_backlight_timeout
+                  # The keypad backlight only helps (and is only visible) in the dark
+                  - if:
+                      condition:
+                        lambda: 'return id(is_nighttime);'
+                      then:
+                        - script.execute: script_keypad_backlight_pulse
+      # Wait for the physical movement pulse to settle, then read ONLY INT1_SRC
+      # (0x31) to release the latch without re-baselining REFERENCE (0x26) mid-motion.
+      - delay: 150ms
+      - lambda: |-
+          uint8_t src = 0;
+          id(accel).read_byte(0x31, &src);
 
 i2c:
   id: i2c_bus

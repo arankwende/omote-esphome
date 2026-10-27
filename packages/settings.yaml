@@ -10,6 +10,22 @@ script:
           condition:
             lambda: 'return id(boot_done);'
           then:
+            - lambda: |-
+                const auto o = id(cfg_motion_sensitivity).current_option();
+                const uint8_t ths = o == "Low" ? 48 : (o == "High" ? 20 : 32);
+                const uint8_t dur = o == "Low" ? 3 : (o == "High" ? 1 : 2);
+                id(accel).set_threshold(ths);
+                id(accel).set_duration(dur);
+                id(accel).write_byte(0x30, 0x00);
+                id(accel).write_byte(0x32, ths);
+                id(accel).write_byte(0x33, dur);
+                uint8_t ref = 0, src = 0;
+                id(accel).read_byte(0x26, &ref);
+                id(accel).read_byte(0x31, &src);
+                if (id(lift_to_wake).state) {
+                  id(accel).write_byte(0x30, 0x2A);
+                  id(accel).read_byte(0x31, &src);
+                }
             - lvgl.slider.update:
                 id: slider_cfg_brightness
                 value: !lambda 'return id(cfg_brightness).state;'
@@ -244,7 +260,7 @@ number:
                 brightness: !lambda 'return x / 100.0f;'
 
 select:
-  # Lift-to-wake sensitivity = LIS3DH INT1 threshold (16mg/LSB at +/-2g)
+  # Lift-to-wake sensitivity = LIS3DH INT1 threshold (16mg/LSB at +/-2g) + duration (25Hz cycles)
   - platform: template
     id: cfg_motion_sensitivity
     name: "Lift to Wake Sensitivity"
@@ -256,7 +272,8 @@ select:
     entity_category: config
     on_value:
       - lambda: |-
-          const uint8_t ths = x == "Low" ? 32 : (x == "High" ? 8 : 16);
+          const uint8_t ths = x == "Low" ? 48 : (x == "High" ? 20 : 32);
+          const uint8_t dur = x == "Low" ? 3 : (x == "High" ? 1 : 2);
           id(accel).set_threshold(ths);
-          id(accel).enable_motion_interrupt();
+          id(accel).set_duration(dur);
       - script.execute: script_settings_sync

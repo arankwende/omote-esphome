@@ -9,19 +9,26 @@ text_sensor:
     entity_id: ${tv_media_player}
     attribute: media_title
     on_value:
-      - lvgl.label.update:
-          id: lbl_tv_title
-          text: !lambda 'return x;'
+      - script.execute: script_tv_update_display
   - platform: homeassistant
     id: tv_media_artist
     entity_id: ${tv_media_player}
     attribute: media_artist
     on_value:
-      - lvgl.label.update:
-          id: lbl_tv_artist
-          text: !lambda 'return x;'
-  # TV media player art - no display widget on TV page, sensor omitted
-  # TV media player state for play/pause icon
+      - script.execute: script_tv_update_display
+  - platform: homeassistant
+    id: tv_app_name
+    entity_id: ${tv_media_player}
+    attribute: app_name
+    on_value:
+      - script.execute: script_tv_update_display
+  - platform: homeassistant
+    id: tv_app_id
+    entity_id: ${tv_media_player}
+    attribute: app_id
+    on_value:
+      - script.execute: script_tv_update_display
+  # TV media player state for play/pause and power icon
   - platform: homeassistant
     id: tv_media_state
     entity_id: ${tv_media_player}
@@ -40,22 +47,113 @@ text_sensor:
       - lvgl.widget.update:
           id: lbl_tv_power_icon
           text_color: !lambda 'return lv_color_hex(x == "off" || x == "standby" || x == "unavailable" ? 0xE74C3C : 0x2ECC71);'
+      - script.execute: script_tv_update_display
   # TV input -> highlight the matching app button (#10)
   - platform: homeassistant
     id: tv_source
     entity_id: ${tv_media_player}
     attribute: source
     on_value:
+      - script.execute: script_tv_update_display
+
+script:
+  # Compute and display What's Playing on the TV card (falling back to Android TV app_name/app_id/source or TV HT)
+  - id: script_tv_update_display
+    mode: restart
+    then:
       - lambda: |-
+          auto map_pkg = [](const std::string &pkg) -> std::string {
+            if (pkg.empty()) return "";
+            if (pkg.find("jellyfin") != std::string::npos) return "Jellyfin";
+            if (pkg.find("netflix") != std::string::npos) return "Netflix";
+            if (pkg.find("disney") != std::string::npos) return "Disney+";
+            if (pkg.find("amazonvideo") != std::string::npos || pkg.find("primevideo") != std::string::npos) return "Prime Video";
+            if (pkg.find("spotify") != std::string::npos) return "Spotify";
+            if (pkg.find("youtube.tvkids") != std::string::npos) return "YouTube Kids";
+            if (pkg.find("youtube") != std::string::npos) return "YouTube";
+            if (pkg.find("hbomax") != std::string::npos || pkg.find("wbd.stream") != std::string::npos) return "HBO Max";
+            if (pkg.find("steamlink") != std::string::npos) return "Steam Link";
+            if (pkg.find("projengmenu") != std::string::npos) return "Home Launcher";
+            if (pkg.find("tvhclient") != std::string::npos || pkg.find("android.tv") != std::string::npos) return "Live TV";
+            return pkg;
+          };
+
+          std::string state = id(tv_media_state).state;
+          std::string title = id(tv_media_title).state;
+          std::string artist = id(tv_media_artist).state;
+          std::string app = id(tv_app_name).state;
+          std::string pkg = id(tv_app_id).state;
+          std::string src = id(tv_source).state;
+
+          std::string active_app = !app.empty() ? app : (!src.empty() ? src : map_pkg(pkg));
+          if (active_app == pkg && !pkg.empty()) {
+            active_app = map_pkg(pkg);
+          }
+
+          // Highlight matching app launcher tile
           const std::pair<lv_obj_t *, const char *> apps[] = {
               {id(btn_app_1), "${app_1_source}"}, {id(btn_app_2), "${app_2_source}"}, {id(btn_app_3), "${app_3_source}"},
               {id(btn_app_4), "${app_4_source}"}, {id(btn_app_5), "${app_5_source}"}};
           for (auto &a : apps) {
-            if (x == a.second) lv_obj_add_state(a.first, LV_STATE_CHECKED);
+            bool match = (!src.empty() && src == a.second) ||
+                         (!active_app.empty() && active_app == a.second);
+            if (match) lv_obj_add_state(a.first, LV_STATE_CHECKED);
             else lv_obj_remove_state(a.first, LV_STATE_CHECKED);
           }
 
-script:
+          std::string disp_title;
+          std::string disp_sub;
+
+          const bool ma_playing = (id(music_state).state == "playing" && !id(music_title).state.empty());
+          const bool tv_off = (state == "off" || state == "standby" || state == "unavailable" || state.empty());
+          if (tv_off) {
+            if (ma_playing) {
+              disp_title = id(music_title).state;
+              disp_sub = !id(music_artist).state.empty() ? (id(music_artist).state + " • TV HT") : "TV HT Playing";
+            } else {
+              disp_title = (state == "standby") ? "TV Standby" : "TV Off";
+              disp_sub = "";
+            }
+          } else {
+            if (!title.empty()) {
+              disp_title = title;
+              if (!artist.empty() && !active_app.empty() && artist != active_app) {
+                disp_sub = artist + " • " + active_app;
+              } else if (!artist.empty()) {
+                disp_sub = artist;
+              } else if (!active_app.empty()) {
+                disp_sub = active_app;
+              } else {
+                disp_sub = state;
+                if (!disp_sub.empty()) disp_sub[0] = toupper(disp_sub[0]);
+              }
+            } else if (ma_playing) {
+              disp_title = id(music_title).state;
+              if (!id(music_artist).state.empty() && !active_app.empty()) {
+                disp_sub = id(music_artist).state + " • " + active_app;
+              } else if (!id(music_artist).state.empty()) {
+                disp_sub = id(music_artist).state;
+              } else if (!active_app.empty()) {
+                disp_sub = active_app;
+              } else {
+                disp_sub = "Playing";
+              }
+            } else if (!active_app.empty()) {
+              disp_title = active_app;
+              disp_sub = state;
+              if (!disp_sub.empty()) disp_sub[0] = toupper(disp_sub[0]);
+            } else {
+              disp_title = "TV On";
+              disp_sub = state;
+              if (!disp_sub.empty()) disp_sub[0] = toupper(disp_sub[0]);
+            }
+          }
+
+          if (strcmp(lv_label_get_text(id(lbl_tv_title)), disp_title.c_str()) != 0)
+            lv_label_set_text(id(lbl_tv_title), disp_title.c_str());
+          if (strcmp(lv_label_get_text(id(lbl_tv_artist)), disp_sub.c_str()) != 0)
+            lv_label_set_text(id(lbl_tv_artist), disp_sub.c_str());
+
   # TV control scripts - DPAD navigation
   - id: script_tv_up
     then:
@@ -164,14 +262,8 @@ script:
   - id: script_tv_power_toggle
     then:
       - logger.log: "TV: Power Toggle"
-#      - remote_transmitter.${remote_type}:
-#          data: ${tv_ir_cmd_power_toggle}
-#          address: ${tv_ir_address}
-#          command: ${tv_ir_cmd_power_toggle}
-      - remote_transmitter.transmit_raw:
-          transmitter_id: IR_TX
-          carrier_frequency: 38kHz
-          code: [2703, -916, 442, -876, 463, -436, 465, -458, 436, -876, 913, -438, 462, -435, 458, -464, 437, -459, 435, -436, 461, -464, 437, -434, 466, -456, 440, -457, 435, -461, 436, -462, 433, -437, 909, -440, 459, -910, 435, -464, 436]
+      - remote_transmitter.${remote_type}:
+          data: ${tv_ir_cmd_power_toggle}
 
   # TV media player control scripts
   - id: script_tv_media_play_pause

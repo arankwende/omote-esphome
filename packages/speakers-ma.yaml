@@ -26,19 +26,23 @@ script:
   - id: script_ma_rooms_refresh
     then:
       - lambda: |-
-          static const char *const ids[] = {"${room1_ma_id}", "${room2_ma_id}", "${room3_ma_id}", "${room4_ma_id}", "${room5_ma_id}", "${room6_ma_id}"};
+          static const char *const cfg_ids[] = {"${room1_ma_id}", "${room2_ma_id}", "${room3_ma_id}", "${room4_ma_id}", "${room5_ma_id}", "${room6_ma_id}"};
+          if (id(ma_resolved_room_ids).size() != 6) {
+            id(ma_resolved_room_ids).assign(cfg_ids, cfg_ids + 6);
+          }
           lv_obj_t *tiles[] = {id(btn_room_1), id(btn_room_2), id(btn_room_3), id(btn_room_4), id(btn_room_5), id(btn_room_6)};
           const std::string &m = id(ma_members);
           for (int i = 0; i < 6; i++) {
-            if (ids[i][0] == '\0') continue;
-            const bool grouped = id(ma_grouped) && m.find(std::string(",") + ids[i] + ",") != std::string::npos;
+            const std::string &rid = id(ma_resolved_room_ids)[i];
+            if (rid.empty()) continue;
+            const bool grouped = id(ma_grouped) && m.find(std::string(",") + rid + ",") != std::string::npos;
             if (grouped) lv_obj_add_state(tiles[i], LV_STATE_CHECKED);
             else lv_obj_remove_state(tiles[i], LV_STATE_CHECKED);
           }
           // keep the open popup's join button in sync
-          const char *sel = ids[id(ma_sel_room)];
+          const std::string &sel = id(ma_resolved_room_ids)[id(ma_sel_room)];
           const bool member = m.find(std::string(",") + sel + ",") != std::string::npos;
-          lv_label_set_text(id(lbl_room_join), strcmp(sel, "${ma_player_id}") == 0 ? "This remote's player"
+          lv_label_set_text(id(lbl_room_join), sel == id(ma_resolved_player_id) ? "This remote's player"
                                                : member ? "Remove from this remote's group"
                                                         : "Add to this remote's group");
 
@@ -69,8 +73,11 @@ script:
             Authorization: "Bearer ${ma_token}"
             Content-Type: application/json
           body: !lambda |-
-            static const char *const ids[] = {"${room1_ma_id}", "${room2_ma_id}", "${room3_ma_id}", "${room4_ma_id}", "${room5_ma_id}", "${room6_ma_id}"};
-            return std::string("{\"command\":\"players/get\",\"args\":{\"player_id\":\"") + ids[id(ma_sel_room)] + "\"}}";
+            static const char *const cfg_ids[] = {"${room1_ma_id}", "${room2_ma_id}", "${room3_ma_id}", "${room4_ma_id}", "${room5_ma_id}", "${room6_ma_id}"};
+            if (id(ma_resolved_room_ids).size() != 6) {
+              id(ma_resolved_room_ids).assign(cfg_ids, cfg_ids + 6);
+            }
+            return std::string("{\"command\":\"players/get\",\"args\":{\"player_id\":\"") + id(ma_resolved_room_ids)[id(ma_sel_room)] + "\"}}";
           capture_response: true
           max_response_buffer_size: 32kB
           on_response:
@@ -107,8 +114,11 @@ script:
           id: script_ma_command
           command: !lambda 'return command;'
           args: !lambda |-
-            static const char *const ids[] = {"${room1_ma_id}", "${room2_ma_id}", "${room3_ma_id}", "${room4_ma_id}", "${room5_ma_id}", "${room6_ma_id}"};
-            return std::string("{\"player_id\":\"") + ids[id(ma_sel_room)] + "\"}";
+            static const char *const cfg_ids[] = {"${room1_ma_id}", "${room2_ma_id}", "${room3_ma_id}", "${room4_ma_id}", "${room5_ma_id}", "${room6_ma_id}"};
+            if (id(ma_resolved_room_ids).size() != 6) {
+              id(ma_resolved_room_ids).assign(cfg_ids, cfg_ids + 6);
+            }
+            return std::string("{\"player_id\":\"") + id(ma_resolved_room_ids)[id(ma_sel_room)] + "\"}";
       - delay: 600ms
       - script.execute: script_ma_room_state
 
@@ -116,14 +126,17 @@ script:
   - id: script_ma_room_group
     then:
       - lambda: |-
-          static const char *const ids[] = {"${room1_ma_id}", "${room2_ma_id}", "${room3_ma_id}", "${room4_ma_id}", "${room5_ma_id}", "${room6_ma_id}"};
+          static const char *const cfg_ids[] = {"${room1_ma_id}", "${room2_ma_id}", "${room3_ma_id}", "${room4_ma_id}", "${room5_ma_id}", "${room6_ma_id}"};
+          if (id(ma_resolved_room_ids).size() != 6) {
+            id(ma_resolved_room_ids).assign(cfg_ids, cfg_ids + 6);
+          }
           const uint32_t t = lv_roller_get_selected(id(roller_room_target)->obj);
-          if (t >= 6 || ids[t][0] == '\0' || (int) t == id(ma_sel_room)) {
+          if (t >= 6 || id(ma_resolved_room_ids)[t].empty() || (int) t == id(ma_sel_room)) {
             lv_label_set_text(id(lbl_room_state), "Choose another configured room");
             return;
           }
           id(script_ma_command).execute("players/cmd/group",
-              std::string("{\"player_id\":\"") + ids[id(ma_sel_room)] + "\",\"target_player\":\"" + ids[t] + "\"}");
+              std::string("{\"player_id\":\"") + id(ma_resolved_room_ids)[id(ma_sel_room)] + "\",\"target_player\":\"" + id(ma_resolved_room_ids)[t] + "\"}");
       - delay: 800ms
       - script.execute: script_ma_room_state
 
@@ -444,14 +457,16 @@ lvgl:
                           - if:
                               condition:
                                 lambda: |-
-                                  static const char *const ids[] = {"${room1_ma_id}", "${room2_ma_id}", "${room3_ma_id}", "${room4_ma_id}", "${room5_ma_id}", "${room6_ma_id}"};
-                                  return strcmp(ids[id(ma_sel_room)], "${ma_player_id}") != 0;
+                                  static const char *const cfg_ids[] = {"${room1_ma_id}", "${room2_ma_id}", "${room3_ma_id}", "${room4_ma_id}", "${room5_ma_id}", "${room6_ma_id}"};
+                                  if (id(ma_resolved_room_ids).size() != 6) {
+                                    id(ma_resolved_room_ids).assign(cfg_ids, cfg_ids + 6);
+                                  }
+                                  return id(ma_resolved_room_ids)[id(ma_sel_room)] != id(ma_resolved_player_id);
                               then:
                                 - script.execute:
                                     id: script_ma_toggle_speaker
                                     speaker_id: !lambda |-
-                                      static const char *const ids[] = {"${room1_ma_id}", "${room2_ma_id}", "${room3_ma_id}", "${room4_ma_id}", "${room5_ma_id}", "${room6_ma_id}"};
-                                      return std::string(ids[id(ma_sel_room)]);
+                                      return id(ma_resolved_room_ids)[id(ma_sel_room)];
                     # Group with any other room
                     - label:
                         x: 14
