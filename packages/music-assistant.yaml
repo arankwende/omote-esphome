@@ -4,9 +4,11 @@
 # Included from omote-music-assistant.yaml; ${ma_*} values are set there.
 
 # http_request blocks the main loop while a request is in flight; keep the
-# timeout short so an unreachable MA server can't freeze the UI for long.
+# timeout short and the header buffers large enough for MA's Bearer JWT token.
 http_request:
-  timeout: 4s
+  buffer_size_rx: 4096
+  buffer_size_tx: 4096
+  timeout: 1500ms
 
 # Keep the Home Assistant music sensors from music.yaml active and also refresh
 # the TV card when the room speaker's playback state or track changes.
@@ -172,17 +174,21 @@ script:
 
   - id: script_play_morning_playlist
     then:
-      - script.execute:
-          id: script_ma_command
-          command: player_queues/play_media
-          args: !lambda 'return "{\"queue_id\":\"" + id(ma_resolved_player_id) + "\",\"media\":\"${ma_morning_playlist}\",\"option\":\"replace\"}";'
+      - homeassistant.action:
+          action: media_player.play_media
+          data:
+            entity_id: media_player.${ma_player}
+            media_content_id: "${ma_morning_playlist}"
+            media_content_type: "music"
 
   - id: script_play_evening_playlist
     then:
-      - script.execute:
-          id: script_ma_command
-          command: player_queues/play_media
-          args: !lambda 'return "{\"queue_id\":\"" + id(ma_resolved_player_id) + "\",\"media\":\"${ma_evening_playlist}\",\"option\":\"replace\"}";'
+      - homeassistant.action:
+          action: media_player.play_media
+          data:
+            entity_id: media_player.${ma_player}
+            media_content_id: "${ma_evening_playlist}"
+            media_content_type: "music"
 
   # ---- Music Assistant API ----
   # Auto-resolve MA player_id values from players/all by matching player_id, HA entity slug, or display_name
@@ -199,7 +205,11 @@ script:
           max_response_buffer_size: 96kB
           on_response:
             - lambda: |-
-                if (response->status_code != 200) return;
+                if (response->status_code != 200) {
+                  ESP_LOGW("ma", "players/all failed: HTTP %d", response->status_code);
+                  id(ma_backoff_until) = millis() + 30000;
+                  return;
+                }
                 static const char *const cfg_ids[] = {
                   "${room1_ma_id}", "${room2_ma_id}", "${room3_ma_id}",
                   "${room4_ma_id}", "${room5_ma_id}", "${room6_ma_id}"
@@ -221,7 +231,10 @@ script:
                 };
                 JsonDocument doc = json::parse_json(body);
                 JsonArray players = doc.as<JsonArray>();
-                if (players.isNull()) return;
+                if (players.isNull()) {
+                  id(ma_backoff_until) = millis() + 30000;
+                  return;
+                }
 
                 auto match_player = [&](const std::string &target_id, const std::string &target_name) -> std::string {
                   std::string tid = norm(target_id);
@@ -249,6 +262,10 @@ script:
                 }
                 id(ma_ids_resolved) = true;
                 ESP_LOGI("ma", "Resolved primary MA player_id: %s", id(ma_resolved_player_id).c_str());
+          on_error:
+            - lambda: |-
+                ESP_LOGW("ma", "players/all unreachable at ${ma_url}");
+                id(ma_backoff_until) = millis() + 30000;
 
   # Send one command to MA's JSON-RPC endpoint (POST /api), then refresh state.
   - id: script_ma_command
@@ -286,126 +303,146 @@ script:
           then:
             - script.execute: script_ma_queue_poll
 
-  # Read this player's state and update the music page.
+  # Read this player's state and update the music / speakers page.
   - id: script_ma_poll
     mode: single
     then:
+      # Yield so LVGL page transitions and keypad events finish first with 0ms lag
+      - delay: 120ms
+      - if:
+          condition:
+            lambda: 'return (int32_t)(millis() - id(ma_backoff_until)) < 0;'
+          then:
+            - script.stop: script_ma_poll
       - if:
           condition:
             lambda: 'return !id(ma_ids_resolved);'
           then:
             - script.execute: script_ma_resolve_ids
-      - http_request.post:
-          url: ${ma_url}/api
-          request_headers:
-            Authorization: "Bearer ${ma_token}"
-            Content-Type: application/json
-          body: !lambda 'return "{\"command\":\"players/get\",\"args\":{\"player_id\":\"" + id(ma_resolved_player_id) + "\"}}";'
-          capture_response: true
-          # A full PlayerState is several kB
-          max_response_buffer_size: 32kB
-          on_response:
-            - lambda: |-
-                if (response->status_code != 200) {
-                  ESP_LOGW("ma", "players/get failed: HTTP %d", response->status_code);
-                  id(ma_ids_resolved) = false;
-                  if (id(music_title).state.empty()) {
-                    lv_label_set_text(id(lbl_music_title),
-                                      response->status_code == 401 ? "MA: invalid token" : "MA: player not found");
-                  }
-                  id(ma_backoff_until) = millis() + 30000;
-                  return;
-                }
-                bool ok = json::parse_json(body, [](JsonObject root) -> bool {
-                  if (root.isNull()) return false;
-                  // Only touch labels when the text changed, so scrolling titles don't restart
-                  auto set_text = [](lv_obj_t *label, const char *text) {
-                    if (strcmp(lv_label_get_text(label), text) != 0) lv_label_set_text(label, text);
-                  };
+          else:
+            - http_request.post:
+                url: ${ma_url}/api
+                request_headers:
+                  Authorization: "Bearer ${ma_token}"
+                  Content-Type: application/json
+                body: !lambda 'return "{\"command\":\"players/get\",\"args\":{\"player_id\":\"" + id(ma_resolved_player_id) + "\"}}";'
+                capture_response: true
+                # A full PlayerState is several kB
+                max_response_buffer_size: 32kB
+                on_response:
+                  - lambda: |-
+                      if (response->status_code != 200) {
+                        ESP_LOGW("ma", "players/get failed: HTTP %d", response->status_code);
+                        id(ma_ids_resolved) = false;
+                        if (id(music_title).state.empty()) {
+                          lv_label_set_text(id(lbl_music_title),
+                                            response->status_code == 401 ? "MA: invalid token" : "MA: player not found");
+                        }
+                        id(ma_backoff_until) = millis() + 30000;
+                        return;
+                      }
+                      bool ok = json::parse_json(body, [](JsonObject root) -> bool {
+                        if (root.isNull()) return false;
+                        // Only touch labels when the text changed, so scrolling titles don't restart
+                        auto set_text = [](lv_obj_t *label, const char *text) {
+                          if (strcmp(lv_label_get_text(label), text) != 0) lv_label_set_text(label, text);
+                        };
 
-                  const char *state = root["playback_state"] | "idle";
-                  const bool playing = strcmp(state, "playing") == 0;
-                  // Only override HA playback status if MA is actively playing or HA is idle
-                  if (playing || id(music_state).state != "playing") {
-                    id(music_playing) = playing;
-                    set_text(id(lbl_play_pause), playing ? "\U000F03E4" : "\U000F040A");
-                    std::string status = state;
-                    for (auto &c : status) c = toupper(c);
-                    set_text(id(lbl_music_status), status.c_str());
-                    lv_obj_set_style_text_color(id(lbl_music_status), lv_color_hex(playing ? 0x1DB954 : 0x888888),
-                                                LV_PART_MAIN);
-                  }
+                        const char *state = root["playback_state"] | "idle";
+                        const bool playing = strcmp(state, "playing") == 0;
+                        // Only override HA playback status if MA is actively playing or HA is idle
+                        if (playing || id(music_state).state != "playing") {
+                          id(music_playing) = playing;
+                          set_text(id(lbl_play_pause), playing ? "\U000F03E4" : "\U000F040A");
+                          std::string status = state;
+                          for (auto &c : status) c = toupper(c);
+                          set_text(id(lbl_music_status), status.c_str());
+                          lv_obj_set_style_text_color(id(lbl_music_status), lv_color_hex(playing ? 0x1DB954 : 0x888888),
+                                                      LV_PART_MAIN);
+                        }
 
-                  JsonArray members = root["group_members"].as<JsonArray>();
-                  std::string m = ",";
-                  for (JsonVariant v : members) {
-                    m += v.as<const char *>();
-                    m += ",";
-                  }
-                  id(ma_members) = m;
-                  id(ma_grouped) = members.size() > 1;
+                        JsonArray members = root["group_members"].as<JsonArray>();
+                        std::string m = ",";
+                        for (JsonVariant v : members) {
+                          m += v.as<const char *>();
+                          m += ",";
+                        }
+                        id(ma_members) = m;
+                        id(ma_grouped) = members.size() > 1;
 
-                  const bool use_group = id(ma_grouped) && !root["group_volume"].isNull();
-                  const int vol = use_group ? root["group_volume"].as<int>() : (root["volume_level"] | 0);
-                  id(ma_muted) = use_group ? (root["group_volume_muted"] | false) : (root["volume_muted"] | false);
-                  set_text(id(lbl_music_mute), id(ma_muted) ? "\U000F0581" : "\U000F057E");
-                  if (!lv_obj_has_state(id(slider_volume), LV_STATE_PRESSED))
-                    lv_slider_set_value(id(slider_volume), vol, LV_ANIM_OFF);
+                        const bool use_group = id(ma_grouped) && !root["group_volume"].isNull();
+                        const int vol = use_group ? root["group_volume"].as<int>() : (root["volume_level"] | 0);
+                        id(ma_muted) = use_group ? (root["group_volume_muted"] | false) : (root["volume_muted"] | false);
+                        set_text(id(lbl_music_mute), id(ma_muted) ? "\U000F0581" : "\U000F057E");
+                        if (!lv_obj_has_state(id(slider_volume), LV_STATE_PRESSED))
+                          lv_slider_set_value(id(slider_volume), vol, LV_ANIM_OFF);
 
-                  JsonObject media = root["current_media"];
-                  if (media.isNull()) {
-                    if (id(music_title).state.empty()) {
-                      set_text(id(lbl_music_title), "No track");
-                      set_text(id(lbl_music_artist), "");
-                      set_text(id(lbl_music_album), "");
-                    }
-                  } else {
-                    const char *m_title = media["title"] | "";
-                    if (m_title[0] != '\0') {
-                      set_text(id(lbl_music_title), m_title);
-                      set_text(id(lbl_music_artist), media["artist"] | "");
-                      set_text(id(lbl_music_album), media["album"] | "");
-                    }
-                    std::string img = media["image_url"] | "";
-                    if (img.rfind("/", 0) == 0) {
-                      img = std::string("${ma_url}") + img;
-                    }
-                    // Ask MA's image proxy for a small JPEG while preserving ?path=...&provider=...
-                    if (img.find("/imageproxy") != std::string::npos && img.find("size=") == std::string::npos) {
-                      img += (img.find('?') != std::string::npos ? "&" : "?") + std::string("size=160&fmt=jpeg");
-                    }
-                    if (!img.empty() && img != id(ma_art_url)) {
-                      id(ma_art_url) = img;
-                      id(ma_art_changed) = true;
-                    }
-                  }
-                  return true;
-                });
-                if (!ok) ESP_LOGW("ma", "Could not parse players/get response (%u bytes)", body.size());
-            - if:
-                condition:
-                  lambda: 'return id(ma_art_changed);'
-                then:
-                  - globals.set:
-                      id: ma_art_changed
-                      value: "false"
-                  - online_image.set_url:
-                      id: album_art
-                      url: !lambda 'return id(ma_art_url);'
-          on_error:
-            - lambda: |-
-                ESP_LOGW("ma", "Music Assistant unreachable at ${ma_url}");
-                if (id(music_title).state.empty()) {
-                  lv_label_set_text(id(lbl_music_title), "Music Assistant offline");
-                }
-                id(ma_backoff_until) = millis() + 30000;
-      - script.execute: script_ma_rooms_refresh
+                        JsonObject media = root["current_media"];
+                        if (media.isNull()) {
+                          if (id(music_title).state.empty()) {
+                            set_text(id(lbl_music_title), "No track");
+                            set_text(id(lbl_music_artist), "");
+                            set_text(id(lbl_music_album), "");
+                          }
+                        } else {
+                          const char *m_title = media["title"] | "";
+                          if (m_title[0] != '\0') {
+                            set_text(id(lbl_music_title), m_title);
+                            set_text(id(lbl_music_artist), media["artist"] | "");
+                            set_text(id(lbl_music_album), media["album"] | "");
+                          }
+                          std::string img = media["image_url"] | "";
+                          if (img.rfind("/", 0) == 0) {
+                            img = std::string("${ma_url}") + img;
+                          }
+                          // Ask MA's image proxy for a small JPEG while preserving ?path=...&provider=...
+                          if (img.find("/imageproxy") != std::string::npos && img.find("size=") == std::string::npos) {
+                            img += (img.find('?') != std::string::npos ? "&" : "?") + std::string("size=160&fmt=jpeg");
+                          }
+                          // Only download from MA if HA hasn't already provided entity_picture
+                          if (!img.empty() && img != id(ma_art_url) && id(music_album_art).state.empty()) {
+                            id(ma_art_url) = img;
+                            id(ma_art_changed) = true;
+                          }
+                        }
+                        return true;
+                      });
+                      if (!ok) ESP_LOGW("ma", "Could not parse players/get response (%u bytes)", body.size());
+                  - if:
+                      condition:
+                        lambda: 'return id(ma_art_changed);'
+                      then:
+                        - globals.set:
+                            id: ma_art_changed
+                            value: "false"
+                        - online_image.set_url:
+                            id: album_art
+                            url: !lambda 'return id(ma_art_url);'
+                on_error:
+                  - lambda: |-
+                      ESP_LOGW("ma", "Music Assistant unreachable at ${ma_url}");
+                      if (id(music_title).state.empty()) {
+                        lv_label_set_text(id(lbl_music_title), "Music Assistant offline");
+                      }
+                      id(ma_backoff_until) = millis() + 30000;
+            - script.execute: script_ma_rooms_refresh
 
   # Queue: shuffle / repeat / position, then the next 5 items (only while the
   # queue popup is open, the item list is a larger response)
   - id: script_ma_queue_poll
     mode: single
     then:
+      - delay: 80ms
+      - if:
+          condition:
+            lambda: 'return (int32_t)(millis() - id(ma_backoff_until)) < 0;'
+          then:
+            - script.stop: script_ma_queue_poll
+      - if:
+          condition:
+            lambda: 'return !id(ma_ids_resolved);'
+          then:
+            - script.execute: script_ma_resolve_ids
       - http_request.post:
           url: ${ma_url}/api
           request_headers:
@@ -473,29 +510,40 @@ script:
 
   - id: script_ma_toggle_shuffle
     then:
-      - script.execute:
-          id: script_ma_command
-          command: player_queues/shuffle
-          args: !lambda |-
-            return std::string("{\"queue_id\":\"") + id(ma_resolved_player_id) + "\",\"shuffle_enabled\":" +
-                   (id(ma_shuffle) ? "false" : "true") + "}";
+      - lambda: |-
+          id(ma_shuffle) = !id(ma_shuffle);
+          if (id(ma_shuffle)) lv_obj_add_state(id(btn_ma_shuffle), LV_STATE_CHECKED);
+          else lv_obj_remove_state(id(btn_ma_shuffle), LV_STATE_CHECKED);
+      - homeassistant.action:
+          action: media_player.shuffle_set
+          data:
+            entity_id: media_player.${ma_player}
+            shuffle: !lambda 'return id(ma_shuffle) ? "true" : "false";'
 
   # off -> all -> one -> off
   - id: script_ma_cycle_repeat
     then:
-      - script.execute:
-          id: script_ma_command
-          command: player_queues/repeat
-          args: !lambda |-
-            const std::string &r = id(ma_repeat);
-            const char *next = r == "off" ? "all" : (r == "all" ? "one" : "off");
-            return std::string("{\"queue_id\":\"") + id(ma_resolved_player_id) + "\",\"repeat_mode\":\"" + next + "\"}";
+      - lambda: |-
+          const std::string &r = id(ma_repeat);
+          id(ma_repeat) = r == "off" ? "all" : (r == "all" ? "one" : "off");
+          const std::string &nr = id(ma_repeat);
+          if (nr == "off") lv_obj_remove_state(id(btn_ma_repeat), LV_STATE_CHECKED);
+          else lv_obj_add_state(id(btn_ma_repeat), LV_STATE_CHECKED);
+          lv_label_set_text(id(lbl_ma_repeat_icon),
+                            nr == "one" ? "\U000F0458" : (nr == "all" ? "\U000F0456" : "\U000F0457"));
+          lv_label_set_text(id(lbl_ma_repeat_text), nr == "one" ? "One" : (nr == "all" ? "All" : "Off"));
+      - homeassistant.action:
+          action: media_player.repeat_set
+          data:
+            entity_id: media_player.${ma_player}
+            repeat: !lambda 'return id(ma_repeat);'
 
   # Playlist picker: load the MA library playlists into the roller
   - id: script_ma_playlists_fetch
     mode: single
     then:
       - lambda: 'lv_roller_set_options(id(ma_playlist_roller)->obj, "Loading...", LV_ROLLER_MODE_NORMAL);'
+      - delay: 60ms
       - http_request.post:
           url: ${ma_url}/api
           request_headers:
@@ -544,12 +592,12 @@ script:
                 id: script_toast
                 text: "Playing playlist"
                 needs: 1
-            - script.execute:
-                id: script_ma_command
-                command: player_queues/play_media
-                args: !lambda |-
-                  const auto &uri = id(ma_playlist_uris)[lv_roller_get_selected(id(ma_playlist_roller)->obj)];
-                  return "{\"queue_id\":\"" + id(ma_resolved_player_id) + "\",\"media\":\"" + uri + "\",\"option\":\"replace\"}";
+            - homeassistant.action:
+                action: media_player.play_media
+                data:
+                  entity_id: media_player.${ma_player}
+                  media_content_id: !lambda 'return id(ma_playlist_uris)[lv_roller_get_selected(id(ma_playlist_roller)->obj)];'
+                  media_content_type: "music"
 
   # D-pad on the music page; while the playlist picker is open it drives the
   # roller instead (up/down select, centre plays)
@@ -595,19 +643,18 @@ script:
             return std::string("{\"target_player\":\"") + id(ma_resolved_player_id) + "\",\"" +
                    (member ? "player_ids_to_remove" : "player_ids_to_add") + "\":[\"" + speaker_id + "\"]}";
 
-# Poll MA every 3s while the music page is visible (not while the screen is
-# off or asleep), backing off for 30s after an error.
+# Home Assistant already pushes real-time updates on music_page; only poll MA
+# while the Speakers page or Queue popup is open and the user is idle.
 interval:
-  - interval: 5s
+  - interval: 8s
     then:
       - if:
           condition:
-            # Each poll briefly blocks the UI, so skip it while the user is
-            # touching / pressing keys (commands still refresh right after)
             lambda: |-
-              return !id(device_sleeping) && id(screen_state) != 2 && (id(current_page) == 1 || id(current_page) == ${speakers_page_index}) &&
+              return !id(device_sleeping) && id(screen_state) != 2 &&
+                     (id(current_page) == ${speakers_page_index} || !lv_obj_has_flag(id(ma_queue_popup), LV_OBJ_FLAG_HIDDEN)) &&
                      (int32_t) (millis() - id(ma_backoff_until)) >= 0 &&
-                     millis() - id(last_activity_time) > 2000;
+                     millis() - id(last_activity_time) > 3000;
           then:
             - script.execute: script_ma_poll
             - if:
@@ -630,8 +677,6 @@ font:
 lvgl:
   pages:
     - id: !extend music_page
-      on_load:
-        - script.execute: script_ma_poll
       on_unload:
         - lvgl.widget.hide: [ma_queue_popup, ma_playlists_popup]
       widgets:

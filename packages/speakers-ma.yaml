@@ -67,6 +67,12 @@ script:
   - id: script_ma_room_state
     mode: single
     then:
+      - delay: 80ms
+      - if:
+          condition:
+            lambda: 'return (int32_t)(millis() - id(ma_backoff_until)) < 0;'
+          then:
+            - script.stop: script_ma_room_state
       - http_request.post:
           url: ${ma_url}/api
           request_headers:
