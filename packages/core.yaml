@@ -57,7 +57,9 @@ esphome:
 external_components:
   # TCA8418 keypad matrix -github component
   - source: github://arankwende/tca8418-keypad-esphome@main
+    refresh: 0s
   - source: github://arankwende/lis3dh-esphome@main
+    refresh: 0s
 
 esp32:
   board: esp32-s3-devkitc-1
