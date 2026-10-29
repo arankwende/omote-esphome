@@ -70,7 +70,6 @@ text_sensor:
     id: music_state
     entity_id: media_player.${ma_player}
     on_value:
-      - script.execute: script_music_art_update
       - if:
           condition:
             lambda: 'return x == "playing";'
@@ -91,6 +90,8 @@ text_sensor:
       - script.execute:
           id: set_music_status
           state: !lambda 'return x;'
+      # last, so music_playing is already up to date
+      - script.execute: script_music_art_update
   - platform: homeassistant
     id: music_album_art
     entity_id: media_player.${ma_player}
@@ -309,6 +310,7 @@ lvgl:
         - script.execute:
             id: script_page_loaded
             page: 1
+        - script.execute: script_music_art_update
       on_swipe_left:
         - script.execute: script_next_page
       on_swipe_right:
