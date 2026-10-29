@@ -140,3 +140,5 @@ substitutions:
   app_5_text_color: "0xFFFFFF"
   # Logger level: INFO keeps the remote responsive; DEBUG for troubleshooting
   log_level: INFO
+  # Music page: controls over the full-screen cover hide after this long (ms)
+  art_controls_timeout_ms: "5000"

@@ -13,6 +13,9 @@ http_request:
 # Keep the Home Assistant music sensors from music.yaml active and also refresh
 # the TV card when the room speaker's playback state or track changes.
 text_sensor:
+  # HA's entity_picture is the full-size cover (100+ KB): decoding it froze the
+  # remote for ~3 s. Album art comes from Music Assistant's 160px proxy instead.
+  - id: !remove music_album_art
   - id: !extend music_title
     on_value:
       - script.execute: script_tv_update_display
@@ -37,6 +40,21 @@ globals:
   - id: ma_art_url
     type: std::string
     initial_value: '""'
+  # Source image_url of the current track (detects track changes) and
+  # whether its small proxy version still has to be looked up
+  - id: ma_art_src
+    type: std::string
+    initial_value: '""'
+  - id: ma_art_need_proxy
+    type: bool
+    initial_value: "false"
+  # Grouped volume being set (-1 = none pending) and playlist cache age
+  - id: ma_vol_target
+    type: int
+    initial_value: "-1"
+  - id: ma_playlists_at
+    type: uint32_t
+    initial_value: "0"
   - id: ma_art_changed
     type: bool
     initial_value: "false"
@@ -85,10 +103,10 @@ script:
           condition:
             lambda: 'return id(ma_grouped);'
           then:
+            # move the slider now, send one command when the presses stop
             - script.execute:
-                id: script_ma_command
-                command: "players/cmd/group_volume_up"
-                args: !lambda 'return "{\"player_id\":\"" + id(ma_resolved_player_id) + "\"}";'
+                id: script_ma_group_volume_step
+                delta: +5
           else:
             - homeassistant.action:
                 action: media_player.volume_up
@@ -101,10 +119,10 @@ script:
           condition:
             lambda: 'return id(ma_grouped);'
           then:
+            # move the slider now, send one command when the presses stop
             - script.execute:
-                id: script_ma_command
-                command: "players/cmd/group_volume_down"
-                args: !lambda 'return "{\"player_id\":\"" + id(ma_resolved_player_id) + "\"}";'
+                id: script_ma_group_volume_step
+                delta: -5
           else:
             - homeassistant.action:
                 action: media_player.volume_down
@@ -295,13 +313,89 @@ script:
                 level: WARN
                 format: "MA %s: server unreachable"
                 args: ['command.c_str()']
-      - delay: 300ms
+      - script.execute: script_ma_refresh_when_idle
+
+  # Refresh MA state once the user stops interacting (each request briefly
+  # blocks the UI, so never in the middle of key presses / touches)
+  - id: script_ma_refresh_when_idle
+    mode: restart
+    then:
+      - wait_until:
+          condition:
+            lambda: 'return millis() - id(last_activity_time) > 1200;'
+          timeout: 8s
       - script.execute: script_ma_poll
       - if:
           condition:
             lambda: 'return !lv_obj_has_flag(id(ma_queue_popup), LV_OBJ_FLAG_HIDDEN);'
           then:
             - script.execute: script_ma_queue_poll
+
+  # Grouped volume +/-: update the slider immediately, send the final level
+  # once the presses stop (one request instead of one per press)
+  - id: script_ma_group_volume_step
+    parameters:
+      delta: int
+    then:
+      - lambda: |-
+          lv_obj_t *sl = id(slider_volume);
+          int cur = (id(ma_vol_target) >= 0 && id(script_ma_group_volume_send).is_running())
+                        ? id(ma_vol_target) : (int) lv_slider_get_value(sl);
+          const int t = clamp(cur + delta, 0, 100);
+          id(ma_vol_target) = t;
+          lv_slider_set_value(sl, t, LV_ANIM_OFF);
+      - script.execute: script_ma_group_volume_send
+  - id: script_ma_group_volume_send
+    mode: restart
+    then:
+      - delay: 600ms
+      - script.execute:
+          id: script_ma_command
+          command: "players/cmd/group_volume"
+          args: !lambda |-
+            return std::string("{\"player_id\":\"") + id(ma_resolved_player_id) + "\",\"volume_level\":" +
+                   to_string(id(ma_vol_target)) + "}";
+      - globals.set:
+          id: ma_vol_target
+          value: "-1"
+
+  # Small album art: read the current track's image proxy_id from the active
+  # queue and download /imageproxy/<id>?size=256 (a few KB instead of 100+)
+  - id: script_ma_art_resolve
+    mode: single
+    then:
+      - http_request.post:
+          url: ${ma_url}/api
+          request_headers:
+            Authorization: "Bearer ${ma_token}"
+            Content-Type: application/json
+          body: !lambda 'return "{\"command\":\"player_queues/get_active_queue\",\"args\":{\"player_id\":\"" + id(ma_resolved_player_id) + "\"}}";'
+          capture_response: true
+          max_response_buffer_size: 64kB
+          on_response:
+            - lambda: |-
+                std::string url = id(ma_art_src);
+                if (response->status_code == 200) {
+                  JsonDocument doc = json::parse_json(body);
+                  JsonObject item = doc["current_item"];
+                  const char *pid = item["image"]["proxy_id"] | "";
+                  if (!pid[0]) pid = item["media_item"]["image"]["proxy_id"] | "";
+                  if (pid[0]) url = std::string("${ma_url}/imageproxy/") + pid + "?size=256&fmt=jpeg";
+                }
+                if (url != id(ma_art_url)) {
+                  id(ma_art_url) = url;
+                  id(ma_art_changed) = true;
+                }
+            - if:
+                condition:
+                  lambda: 'return id(ma_art_changed);'
+                then:
+                  - globals.set:
+                      id: ma_art_changed
+                      value: "false"
+                  - online_image.set_url:
+                      id: album_art
+                      url: !lambda 'return id(ma_art_url);'
 
   # Read this player's state and update the music / speakers page.
   - id: script_ma_poll
@@ -397,12 +491,17 @@ script:
                           }
                           // Ask MA's image proxy for a small JPEG while preserving ?path=...&provider=...
                           if (img.find("/imageproxy") != std::string::npos && img.find("size=") == std::string::npos) {
-                            img += (img.find('?') != std::string::npos ? "&" : "?") + std::string("size=160&fmt=jpeg");
+                            img += (img.find('?') != std::string::npos ? "&" : "?") + std::string("size=256&fmt=jpeg");
                           }
-                          // Only download from MA if HA hasn't already provided entity_picture
-                          if (!img.empty() && img != id(ma_art_url) && id(music_album_art).state.empty()) {
-                            id(ma_art_url) = img;
-                            id(ma_art_changed) = true;
+                          if (!img.empty() && img != id(ma_art_src)) {
+                            id(ma_art_src) = img;
+                            if (img.find("/imageproxy/") != std::string::npos) {
+                              id(ma_art_url) = img;
+                              id(ma_art_changed) = true;
+                            } else {
+                              // direct (often full-size) link: look up the small proxy image
+                              id(ma_art_need_proxy) = true;
+                            }
                           }
                         }
                         return true;
@@ -418,6 +517,14 @@ script:
                         - online_image.set_url:
                             id: album_art
                             url: !lambda 'return id(ma_art_url);'
+                  - if:
+                      condition:
+                        lambda: 'return id(ma_art_need_proxy);'
+                      then:
+                        - globals.set:
+                            id: ma_art_need_proxy
+                            value: "false"
+                        - script.execute: script_ma_art_resolve
                 on_error:
                   - lambda: |-
                       ESP_LOGW("ma", "Music Assistant unreachable at ${ma_url}");
@@ -426,6 +533,7 @@ script:
                       }
                       id(ma_backoff_until) = millis() + 30000;
             - script.execute: script_ma_rooms_refresh
+            - script.execute: script_music_art_update
 
   # Queue: shuffle / repeat / position, then the next 5 items (only while the
   # queue popup is open, the item list is a larger response)
@@ -571,6 +679,7 @@ script:
                 } else {
                   ESP_LOGW("ma", "library playlists failed: HTTP %d", response->status_code);
                 }
+                if (!opts.empty()) id(ma_playlists_at) = millis();
                 lv_roller_set_options(id(ma_playlist_roller)->obj, opts.empty() ? "No playlists" : opts.c_str(),
                                       LV_ROLLER_MODE_NORMAL);
           on_error:
@@ -579,7 +688,12 @@ script:
   - id: script_ma_open_playlists
     then:
       - lvgl.widget.show: ma_playlists_popup
-      - script.execute: script_ma_playlists_fetch
+      # the library list is a big response: reuse it for 10 minutes
+      - if:
+          condition:
+            lambda: 'return id(ma_playlist_uris).empty() || millis() - id(ma_playlists_at) > 600000;'
+          then:
+            - script.execute: script_ma_playlists_fetch
 
   - id: script_ma_play_selected_playlist
     then:

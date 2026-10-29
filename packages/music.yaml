@@ -8,13 +8,21 @@ image:
     url: "https://via.placeholder.com/100"
     format: JPEG
     type: RGB565
-    resize: 100x100
+    # Full-screen size; the now-playing card shows it scaled down
+    resize: 240x240
     on_download_finished:
       - logger.log: "Album art downloaded OK"
       - lvgl.image.update:
           id: img_album_art
           src: album_art
+      - lvgl.image.update:
+          id: img_album_art_full
+          src: album_art
+      - globals.set:
+          id: music_art_loaded
+          value: "true"
       - lvgl.widget.redraw:
+      - script.execute: script_music_art_update
     on_error:
       - logger.log:
           level: WARN
@@ -40,6 +48,7 @@ text_sensor:
       - lvgl.label.update:
           id: lbl_music_title
           text: !lambda 'return x;'
+      - script.execute: script_music_art_sync
   - platform: homeassistant
     id: music_artist
     entity_id: media_player.${ma_player}
@@ -48,6 +57,7 @@ text_sensor:
       - lvgl.label.update:
           id: lbl_music_artist
           text: !lambda 'return x;'
+      - script.execute: script_music_art_sync
   - platform: homeassistant
     id: music_album
     entity_id: media_player.${ma_player}
@@ -60,6 +70,7 @@ text_sensor:
     id: music_state
     entity_id: media_player.${ma_player}
     on_value:
+      - script.execute: script_music_art_update
       - if:
           condition:
             lambda: 'return x == "playing";'
@@ -112,11 +123,78 @@ binary_sensor:
           text: !lambda 'return std::string(x ? "\U000F0581" : "\U000F057E");'
 
 globals:
+  # Full-screen cover view (music page while something plays)
+  - id: music_art_loaded
+    type: bool
+    initial_value: "false"
+  # "Details" pressed: keep the normal layout until this time (millis)
+  - id: music_art_suppress_until
+    type: uint32_t
+    initial_value: "0"
   - id: music_playing
     type: bool
     initial_value: "false"
 
 script:
+  # Show the full-screen cover while playing (if a cover is loaded and the
+  # user didn't ask for the details view), the normal layout otherwise
+  - id: script_music_art_update
+    then:
+      - lambda: |-
+          const bool show = id(music_playing) && id(music_art_loaded) &&
+                            (int32_t) (millis() - id(music_art_suppress_until)) >= 0;
+          const bool shown = !lv_obj_has_flag(id(music_art_view), LV_OBJ_FLAG_HIDDEN);
+          if (show == shown) return;
+          if (show) {
+            lv_obj_add_flag(id(music_art_controls), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(id(music_art_view), LV_OBJ_FLAG_HIDDEN);
+          } else {
+            lv_obj_add_flag(id(music_art_view), LV_OBJ_FLAG_HIDDEN);
+          }
+      - script.execute: script_music_art_sync
+
+  # Copy title / artist / play state / volume into the full-screen view
+  - id: script_music_art_sync
+    then:
+      - lambda: |-
+          auto copy = [](lv_obj_t *dst, lv_obj_t *src) {
+            const char *t = lv_label_get_text(src);
+            if (strcmp(lv_label_get_text(dst), t) != 0) lv_label_set_text(dst, t);
+          };
+          copy(id(lbl_art_title), id(lbl_music_title));
+          copy(id(lbl_art_artist), id(lbl_music_artist));
+          copy(id(lbl_art_play_pause), id(lbl_play_pause));
+          if (!lv_obj_has_state(id(slider_art_volume), LV_STATE_PRESSED))
+            lv_slider_set_value(id(slider_art_volume), lv_slider_get_value(id(slider_volume)), LV_ANIM_OFF);
+
+  # Tap on the cover: show / hide the controls
+  - id: script_music_art_tap
+    then:
+      - if:
+          condition:
+            lambda: 'return lv_obj_has_flag(id(music_art_controls), LV_OBJ_FLAG_HIDDEN);'
+          then:
+            - script.execute: script_music_art_sync
+            - lvgl.widget.show: music_art_controls
+            - script.execute: script_music_art_controls_timer
+          else:
+            - lvgl.widget.hide: music_art_controls
+
+  # Controls fade out a few seconds after the last touch on them
+  - id: script_music_art_controls_timer
+    mode: restart
+    then:
+      - delay: ${art_controls_timeout_ms}ms
+      - lvgl.widget.hide: music_art_controls
+
+  # "Details" button: back to the normal layout for a minute
+  - id: script_music_art_details
+    then:
+      - globals.set:
+          id: music_art_suppress_until
+          value: !lambda 'return millis() + 60000;'
+      - lvgl.widget.hide: music_art_view
+
   # D-pad on the music page: up/down volume, left/right track, centre play/pause
   - id: script_music_dpad
     parameters:
@@ -267,8 +345,9 @@ lvgl:
                         text_color: 0x555555
               - image:
                   id: img_album_art
-                  x: 6
-                  y: 6
+                  x: -64
+                  y: -64
+                  scale: 0.42  # 240px cover shown at ~100px
                   src: album_art
               - label:
                   id: lbl_music_status
@@ -436,3 +515,137 @@ lvgl:
                   text: "${ma_evening_name}"
             on_click:
               - script.execute: script_play_evening_playlist
+
+        # ===== FULL-SCREEN COVER (while playing; tap for controls) =====
+        - obj:
+            id: music_art_view
+            x: 0
+            y: 0
+            width: 240
+            height: 320
+            bg_color: 0x000000
+            border_width: 0
+            radius: 0
+            pad_all: 0
+            scrollable: false
+            hidden: true
+            on_click:
+              - script.execute: script_music_art_tap
+            widgets:
+              - image:
+                  id: img_album_art_full
+                  x: 0
+                  y: 28
+                  src: album_art
+              - label:
+                  id: lbl_art_title
+                  x: 8
+                  y: 272
+                  width: 224
+                  text_font: roboto_18
+                  text: ""
+                  text_color: 0xFFFFFF
+                  long_mode: scroll_circular
+              - label:
+                  id: lbl_art_artist
+                  x: 8
+                  y: 297
+                  width: 224
+                  text_font: roboto_14
+                  text: ""
+                  text_color: 0xAAAAAA
+                  long_mode: dot
+              # Controls overlay (hidden until the cover is tapped)
+              - obj:
+                  id: music_art_controls
+                  x: 0
+                  y: 176
+                  width: 240
+                  height: 144
+                  bg_color: 0x000000
+                  bg_opa: 75%
+                  border_width: 0
+                  radius: 0
+                  pad_all: 0
+                  scrollable: false
+                  hidden: true
+                  on_click:
+                    - script.execute: script_music_art_controls_timer
+                  widgets:
+                    - button:
+                        x: 18
+                        y: 14
+                        width: 58
+                        height: 58
+                        radius: 29
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: mdi_36
+                              text: "\U000F04AE"
+                        on_click:
+                          - script.execute: script_music_prev
+                          - script.execute: script_music_art_controls_timer
+                    - button:
+                        x: 86
+                        y: 8
+                        width: 68
+                        height: 68
+                        radius: 34
+                        bg_color: 0x1DB954
+                        scrollable: false
+                        widgets:
+                          - label:
+                              id: lbl_art_play_pause
+                              align: center
+                              text_font: mdi_36
+                              text: "\U000F03E4"
+                        on_click:
+                          - script.execute: script_music_play_pause
+                          - script.execute: script_music_art_controls_timer
+                    - button:
+                        x: 164
+                        y: 14
+                        width: 58
+                        height: 58
+                        radius: 29
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: mdi_36
+                              text: "\U000F04AD"
+                        on_click:
+                          - script.execute: script_music_next
+                          - script.execute: script_music_art_controls_timer
+                    - slider:
+                        id: slider_art_volume
+                        x: 16
+                        y: 100
+                        width: 162
+                        height: 18
+                        min_value: 0
+                        max_value: 100
+                        on_value:
+                          - script.execute: script_music_art_controls_timer
+                        on_release:
+                          - script.execute:
+                              id: script_music_set_volume
+                              level: !lambda 'return (int) x;'
+                    # Back to the normal layout (playlists, speakers, queue...)
+                    - button:
+                        x: 192
+                        y: 90
+                        width: 40
+                        height: 40
+                        radius: 20
+                        bg_color: 0x444444
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: mdi_20
+                              text: "\U000F0279"
+                        on_click:
+                          - script.execute: script_music_art_details

@@ -217,6 +217,7 @@ font:
       - "\U000F04DE"  # mdi:stove (kitchen)
       - "\U000F02DC"  # mdi:home (default)
       - "\U000F04DB"  # mdi:stop (blinds)
+      - "\U000F0279"  # mdi:format-list-bulleted (music details)
   # Material Design Icons, pinned (codepoints can shift between versions)
   - file: "https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf"
     id: mdi_36
