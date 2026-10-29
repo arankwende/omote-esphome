@@ -381,7 +381,7 @@ script:
           value: "-1"
 
   # Small album art: read the current track's image proxy_id from the active
-  # queue and download /imageproxy/<id>?size=256 (a few KB instead of 100+)
+  # queue and download /imageproxy/<id>?size=512 (a few KB instead of 100+)
   - id: script_ma_art_resolve
     mode: single
     then:
@@ -413,7 +413,7 @@ script:
                   JsonObject item = doc["current_item"];
                   const char *pid = item["image"]["proxy_id"] | "";
                   if (!pid[0]) pid = item["media_item"]["image"]["proxy_id"] | "";
-                  if (pid[0]) url = std::string("${ma_url}/imageproxy/") + pid + "?size=256&fmt=jpeg";
+                  if (pid[0]) url = std::string("${ma_url}/imageproxy/") + pid + "?size=512&fmt=jpeg";
                 }
                 if (url != id(ma_art_url)) {
                   id(ma_art_url) = url;

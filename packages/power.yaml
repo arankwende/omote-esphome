@@ -378,7 +378,9 @@ interval:
                             then:
                               - lvgl.page.show: music_page
                         - script.execute: script_music_art_update
-                        - lvgl.widget.hide: music_art_controls
+                        - script.execute:
+                            id: script_music_art_controls
+                            show: false
                 else:
                   # leaving dock mode (unplugged / music stopped): restart the
                   # idle timer instead of sleeping on the spot
