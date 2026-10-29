@@ -13,9 +13,26 @@ http_request:
 # Keep the Home Assistant music sensors from music.yaml active and also refresh
 # the TV card when the room speaker's playback state or track changes.
 text_sensor:
-  # HA's entity_picture is the full-size cover (100+ KB): decoding it froze the
-  # remote for ~3 s. Album art comes from Music Assistant's 160px proxy instead.
+  # Album art: Home Assistant pushes entity_picture whenever the track changes;
+  # that triggers one Music Assistant lookup for the small (256px) proxy
+  # version of the cover. HA's own picture is full size (100+ KB, ~3 s to
+  # decode) and is only used as a fallback.
   - id: !remove music_album_art
+  - platform: homeassistant
+    id: music_album_art
+    entity_id: media_player.${ma_player}
+    attribute: entity_picture
+    on_value:
+      - if:
+          condition:
+            lambda: 'return !x.empty();'
+          then:
+            - globals.set:
+                id: ma_ha_art_url
+                value: !lambda |-
+                  if (x.rfind("http", 0) == 0) return x;
+                  return std::string("${ha_url}") + x;
+            - script.execute: script_ma_art_resolve
   - id: !extend music_title
     on_value:
       - script.execute: script_tv_update_display
@@ -43,6 +60,10 @@ globals:
   # Source image_url of the current track (detects track changes) and
   # whether its small proxy version still has to be looked up
   - id: ma_art_src
+    type: std::string
+    initial_value: '""'
+  # Home Assistant's (full-size) cover URL, fallback for the small one
+  - id: ma_ha_art_url
     type: std::string
     initial_value: '""'
   - id: ma_art_need_proxy
@@ -372,9 +393,21 @@ script:
           body: !lambda 'return "{\"command\":\"player_queues/get_active_queue\",\"args\":{\"player_id\":\"" + id(ma_resolved_player_id) + "\"}}";'
           capture_response: true
           max_response_buffer_size: 64kB
+          on_error:
+            - lambda: 'id(ma_art_url) = id(ma_ha_art_url); id(ma_art_changed) = !id(ma_art_url).empty();'
+            - if:
+                condition:
+                  lambda: 'return id(ma_art_changed);'
+                then:
+                  - globals.set:
+                      id: ma_art_changed
+                      value: "false"
+                  - online_image.set_url:
+                      id: album_art
+                      url: !lambda 'return id(ma_art_url);'
           on_response:
             - lambda: |-
-                std::string url = id(ma_art_src);
+                std::string url = id(ma_ha_art_url);
                 if (response->status_code == 200) {
                   JsonDocument doc = json::parse_json(body);
                   JsonObject item = doc["current_item"];
@@ -485,46 +518,10 @@ script:
                             set_text(id(lbl_music_artist), media["artist"] | "");
                             set_text(id(lbl_music_album), media["album"] | "");
                           }
-                          std::string img = media["image_url"] | "";
-                          if (img.rfind("/", 0) == 0) {
-                            img = std::string("${ma_url}") + img;
-                          }
-                          // Ask MA's image proxy for a small JPEG while preserving ?path=...&provider=...
-                          if (img.find("/imageproxy") != std::string::npos && img.find("size=") == std::string::npos) {
-                            img += (img.find('?') != std::string::npos ? "&" : "?") + std::string("size=256&fmt=jpeg");
-                          }
-                          if (!img.empty() && img != id(ma_art_src)) {
-                            id(ma_art_src) = img;
-                            if (img.find("/imageproxy/") != std::string::npos) {
-                              id(ma_art_url) = img;
-                              id(ma_art_changed) = true;
-                            } else {
-                              // direct (often full-size) link: look up the small proxy image
-                              id(ma_art_need_proxy) = true;
-                            }
-                          }
                         }
                         return true;
                       });
                       if (!ok) ESP_LOGW("ma", "Could not parse players/get response (%u bytes)", body.size());
-                  - if:
-                      condition:
-                        lambda: 'return id(ma_art_changed);'
-                      then:
-                        - globals.set:
-                            id: ma_art_changed
-                            value: "false"
-                        - online_image.set_url:
-                            id: album_art
-                            url: !lambda 'return id(ma_art_url);'
-                  - if:
-                      condition:
-                        lambda: 'return id(ma_art_need_proxy);'
-                      then:
-                        - globals.set:
-                            id: ma_art_need_proxy
-                            value: "false"
-                        - script.execute: script_ma_art_resolve
                 on_error:
                   - lambda: |-
                       ESP_LOGW("ma", "Music Assistant unreachable at ${ma_url}");
