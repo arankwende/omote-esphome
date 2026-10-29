@@ -353,10 +353,11 @@ interval:
                   uint8_t src = 0;
                   id(accel).read_byte(0x31, &src);
                 }
-            # Charging and playing music: don't dim or sleep, show the cover
+            # Charging and playing music (or the TV, with art): don't dim or
+            # sleep, show the cover / poster
             - if:
                 condition:
-                  lambda: 'return id(battery_charging).state && id(music_playing);'
+                  lambda: 'return id(battery_charging).state && (id(music_playing) || id(tv_playing));'
                 then:
                   - if:
                       condition:
@@ -374,13 +375,27 @@ interval:
                               - script.execute: script_reset_backlight_timeout
                         - if:
                             condition:
-                              lambda: 'return id(current_page) != 1;'
+                              lambda: 'return id(music_playing);'
                             then:
-                              - lvgl.page.show: music_page
-                        - script.execute: script_music_art_update
-                        - script.execute:
-                            id: script_music_art_controls
-                            show: false
+                              - if:
+                                  condition:
+                                    lambda: 'return id(current_page) != 1;'
+                                  then:
+                                    - lvgl.page.show: music_page
+                              - script.execute: script_music_art_update
+                              - script.execute:
+                                  id: script_music_art_controls
+                                  show: false
+                            else:
+                              - if:
+                                  condition:
+                                    lambda: 'return id(current_page) != 2;'
+                                  then:
+                                    - lvgl.page.show: tv_page
+                              - script.execute: script_tv_art_update
+                              - script.execute:
+                                  id: script_tv_art_controls
+                                  show: false
                 else:
                   # leaving dock mode (unplugged / music stopped): restart the
                   # idle timer instead of sleeping on the spot

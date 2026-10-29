@@ -1,0 +1,238 @@
+# OMOTE - TV "now playing" for Home Assistant
+#
+# The Android TV Remote integration only reports WHICH app is open, not what
+# it plays. This package builds sensor.omote_tv_now_playing (state playing /
+# paused / ..., media_title, media_artist and a poster as entity_picture),
+# which the remote's TV page shows full screen. Set in the remote's config:
+#
+#   substitutions:
+#     tv_now_playing: sensor.omote_tv_now_playing
+#
+# Where the information comes from:
+#   - Jellyfin: the Jellyfin integration's media player for the TV client
+#     (title, series and artwork straight from the Jellyfin server).
+#   - Netflix, Disney+, Prime, ... (and Jellyfin without the integration):
+#     Android publishes what each app plays (its "media session"); the Android
+#     Debug Bridge integration reads it every 10 s while the TV is on. The
+#     poster is then looked up by title on TMDB and served by HA, so the
+#     remote downloads it over local http.
+#
+# Setup:
+#   1. TV: Settings > Device preferences > About > click "Build" 7 times;
+#      then Developer options > USB debugging (and Network debugging if
+#      listed) ON. Fixed IP for the TV in your router.
+#   2. HA: add the "Android Debug Bridge" integration for the TV's IP (accept
+#      the prompt on the TV, tick "always allow"). Use its media_player
+#      below; it can live next to the Android TV Remote one.
+#   3. Check the TV really publishes titles: start a Netflix episode, then
+#      Developer tools > Actions > "Android Debug Bridge: ADB command" on the
+#      ADB entity with command: dumpsys media_session
+#      and look at the entity's "adb_response" attribute: a line like
+#      "metadata: size=.., description=<title>, <subtitle>, ..." is needed.
+#   4. Free TMDB account > Settings > API > "API Read Access Token", then in
+#      secrets.yaml:   tmdb_bearer: "Bearer eyJhbGciOi..."
+#   5. Copy this file to config/packages/ and make sure configuration.yaml has
+#        homeassistant:
+#          packages: !include_dir_named packages
+#      then restart HA.
+#
+# Entities used (Living TV; Home Assistant YAML has no substitutions, so to
+# reuse this for another TV copy the file and search-and-replace them):
+#   media_player.living_tv_philips_oled_adb       Android Debug Bridge player
+#   media_player.living_tv_philips_oled_jellyfin  Jellyfin integration player
+#   Rename the omote_tv_* ids too, so both copies can coexist.
+
+input_text:
+  omote_tv_title:
+    name: Omote TV title
+    max: 255
+  omote_tv_subtitle:
+    name: Omote TV subtitle
+    max: 255
+  omote_tv_state:
+    name: Omote TV playback state
+    max: 32
+  omote_tv_poster:
+    name: Omote TV poster URL
+    max: 255
+
+rest_command:
+  omote_tmdb_search:
+    url: >-
+      https://api.themoviedb.org/3/search/multi?include_adult=false&language=es-AR&query={{ query | urlencode }}
+    method: get
+    headers:
+      Authorization: !secret tmdb_bearer
+      accept: application/json
+    timeout: 10
+
+automation:
+  # Read the media session of the app on screen
+  - id: omote_tv_now_playing_poll
+    alias: "Omote TV: read now playing"
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: time_pattern
+        seconds: "/10"
+      - trigger: state
+        entity_id: media_player.living_tv_philips_oled_adb
+        attribute: app_id
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ states('media_player.living_tv_philips_oled_adb') not in ['off', 'standby', 'unavailable', 'unknown'] }}
+    actions:
+      - action: androidtv.adb_command
+        target:
+          entity_id: media_player.living_tv_philips_oled_adb
+        data:
+          command: >-
+            dumpsys media_session | grep -E 'package=|state=PlaybackState|description='
+      - variables:
+          app: "{{ state_attr('media_player.living_tv_philips_oled_adb', 'app_id') or '' }}"
+          np: >-
+            {%- set out = state_attr('media_player.living_tv_philips_oled_adb', 'adb_response') or '' %}
+            {%- set ns = namespace(pkg='', st=0, sessions=[]) %}
+            {%- for raw in out.split('\n') %}
+              {%- set l = raw | trim %}
+              {%- if l.startswith('package=') %}
+                {%- set ns.pkg = l[8:] %}
+                {%- set ns.st = 0 %}
+              {%- elif l.startswith('state=PlaybackState') %}
+                {%- set ns.st = (l | regex_findall('state=(\\d+)') | first | default(0)) | int(0) %}
+              {%- elif 'description=' in l %}
+                {%- set parts = l.split('description=', 1)[1].split(', ') %}
+                {%- set ns.sessions = ns.sessions + [{'pkg': ns.pkg, 'st': ns.st,
+                     'title': parts[0] if parts[0] != 'null' else '',
+                     'sub': parts[1] if parts | count > 1 and parts[1] != 'null' else ''}] %}
+              {%- endif %}
+            {%- endfor %}
+            {%- set own = ns.sessions | selectattr('pkg', 'eq', app) | selectattr('title') | list %}
+            {%- set playing = ns.sessions | selectattr('st', 'eq', 3) | selectattr('title') | list %}
+            {%- set s = (own or playing or [{}]) | first %}
+            {{- {'title': s.title | default(''), 'sub': s.sub | default(''),
+                'state': {3: 'playing', 2: 'paused'}.get(s.st | default(0), 'idle')} }}
+      - if:
+          - condition: template
+            value_template: >-
+              {{ np.title != states('input_text.omote_tv_title')
+                 or np.sub != states('input_text.omote_tv_subtitle') }}
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.omote_tv_subtitle
+            data:
+              value: "{{ np.sub[:255] }}"
+          # title last: its change triggers the poster lookup
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.omote_tv_title
+            data:
+              value: "{{ np.title[:255] }}"
+      - if:
+          - condition: template
+            value_template: "{{ np.state != states('input_text.omote_tv_state') }}"
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.omote_tv_state
+            data:
+              value: "{{ np.state }}"
+
+  # TV off: forget what was playing
+  - id: omote_tv_now_playing_clear
+    alias: "Omote TV: clear now playing"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: media_player.living_tv_philips_oled_adb
+        to: ["off", "standby", "unavailable"]
+    actions:
+      - action: input_text.set_value
+        target:
+          entity_id:
+            - input_text.omote_tv_title
+            - input_text.omote_tv_subtitle
+            - input_text.omote_tv_poster
+        data:
+          value: ""
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.omote_tv_state
+        data:
+          value: "idle"
+
+  # New title: find its poster on TMDB
+  - id: omote_tv_poster_lookup
+    alias: "Omote TV: look up poster"
+    mode: restart
+    triggers:
+      - trigger: state
+        entity_id: input_text.omote_tv_title
+    actions:
+      - variables:
+          title: "{{ states('input_text.omote_tv_title') }}"
+          # "Show: S1:E2 Episode" style titles: search the show
+          query: "{{ title.split(':')[0] | trim }}"
+      - if:
+          - condition: template
+            value_template: "{{ query in ['', 'unknown', 'unavailable'] }}"
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.omote_tv_poster
+            data:
+              value: ""
+          - stop: "nothing playing"
+      - action: rest_command.omote_tmdb_search
+        data:
+          query: "{{ query }}"
+        response_variable: tmdb
+      - variables:
+          path: >-
+            {% set r = tmdb.content.results | default([]) if tmdb.status == 200 else [] %}
+            {{ r | selectattr('poster_path', 'defined') | selectattr('poster_path')
+                 | map(attribute='poster_path') | first | default('') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.omote_tv_poster
+        data:
+          # w342: 342x513, a few tens of KB
+          value: "{{ 'https://image.tmdb.org/t/p/w342' ~ path if path else '' }}"
+
+template:
+  # HA downloads the poster and serves it to the remote over local http
+  - image:
+      - name: Omote TV Poster
+        unique_id: omote_tv_poster
+        url: "{{ states('input_text.omote_tv_poster') }}"
+
+  - sensor:
+      - name: Omote TV Now Playing
+        unique_id: omote_tv_now_playing
+        state: >-
+          {% set jf = 'media_player.living_tv_philips_oled_jellyfin' %}
+          {% if states(jf) in ['playing', 'paused'] %}{{ states(jf) }}
+          {% elif states('input_text.omote_tv_title') not in ['', 'unknown', 'unavailable'] %}
+            {{- states('input_text.omote_tv_state') }}
+          {% else %}{{ states('media_player.living_tv_philips_oled_adb') }}{% endif %}
+        attributes:
+          media_title: >-
+            {% set jf = 'media_player.living_tv_philips_oled_jellyfin' %}
+            {% if states(jf) in ['playing', 'paused'] %}
+              {{- state_attr(jf, 'media_series_title') or state_attr(jf, 'media_title') or '' }}
+            {% else %}{{ states('input_text.omote_tv_title') | replace('unknown', '') }}{% endif %}
+          media_artist: >-
+            {% set jf = 'media_player.living_tv_philips_oled_jellyfin' %}
+            {% if states(jf) in ['playing', 'paused'] %}
+              {%- if state_attr(jf, 'media_series_title') %}{{ state_attr(jf, 'media_title') or '' }}{% endif %}
+            {% else %}{{ states('input_text.omote_tv_subtitle') | replace('unknown', '') }}{% endif %}
+        # The remote ignores HA's rotating token, so a version is appended to
+        # tell a new poster from the same one with a fresh token
+        picture: >-
+          {% set jf = 'media_player.living_tv_philips_oled_jellyfin' %}
+          {% if states(jf) in ['playing', 'paused'] %}{{ state_attr(jf, 'entity_picture') or '' }}
+          {% elif states('input_text.omote_tv_poster') not in ['', 'unknown', 'unavailable'] %}
+            {{- state_attr('image.omote_tv_poster', 'entity_picture') ~ '&v=' ~ (states('image.omote_tv_poster') | urlencode) }}
+          {% endif %}

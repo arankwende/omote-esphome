@@ -31,6 +31,8 @@ packages/
   settings.yaml    Settings page + adjustable settings
   music-assistant.yaml  Music Assistant overrides for music.yaml (+ playlist picker, queue)
   speakers-ma.yaml Speakers page: control and group up to 6 Music Assistant players
+homeassistant/
+  omote_tv_now_playing.yaml  Home Assistant package: TV titles and posters (see below)
 ```
 
 Don't edit the files in `packages/`: put your values in a device file (see `examples/`) that overrides `packages/defaults.yaml`. Pages appear in the order of the `packages:` list.
@@ -69,6 +71,45 @@ The **Stay Awake** switch in Home Assistant disables deep sleep, for logs or OTA
 `omote-music-assistant.yaml` (with `packages/music-assistant.yaml`) is the same remote, but all music control goes **directly to the Music Assistant server** (its `/api` endpoint) instead of through Home Assistant `media_player` entities. That covers transport, volume, mute, quick-play playlists, now-playing info and artwork, and joining speakers into a group. It includes `omote.yaml`, so every other page and the power management stay shared.
 
 Setup: add `ma_token` (an MA long-lived token) to `secrets.yaml`, set `ma_url`, `ma_player_id` and up to four `ma_speaker_N_id`/`_name` entries in the file's `substitutions`, then flash `omote-music-assistant.yaml`. MA player ids are not HA entity ids; look them up with `players/all` at `http://<ma-host>:8095/api-docs`.
+
+## TV now playing (Netflix, Disney+, Jellyfin...)
+
+While the TV plays or is paused, the TV page shows the poster full screen with the title at the bottom; tap it for the controls. On the charger, the remote stays on showing the poster.
+
+The Android TV Remote integration only reports which app is open, not what it plays. `homeassistant/omote_tv_now_playing.yaml` is a Home Assistant package that fills the gap and builds `sensor.omote_tv_now_playing`:
+
+- **Jellyfin**: title, series and artwork from the Jellyfin integration's player for the TV.
+- **Netflix, Disney+, Prime and other apps** (and Jellyfin without the integration): every 10 s while the TV is on, the Android Debug Bridge integration reads what the app on screen publishes as playing (`dumpsys media_session`). The poster is looked up by title on TMDB and served by Home Assistant, so the remote downloads it over local http.
+
+Point the remote at it in your device file:
+
+```yaml
+substitutions:
+  tv_now_playing: sensor.omote_tv_now_playing
+```
+
+Without it, `tv_now_playing` defaults to `tv_media_player`, and the page shows a poster only if that player reports a picture.
+
+### Installing the package in Home Assistant
+
+HACS can't install it: HACS handles integrations, cards, themes and scripts, not YAML packages. A blueprint won't do either, since blueprints only make automations and this also creates helpers, a `rest_command` and template entities. Copy it by hand once:
+
+1. **TV**: Settings > Device preferences > About, click *Build* 7 times, then turn on *USB debugging* (and *Network debugging* if listed) in Developer options. Give the TV a fixed IP.
+2. **ADB integration**: add *Android Debug Bridge* for the TV's IP and accept the prompt on the TV ("always allow"). It can live next to the Android TV Remote integration.
+3. **Check that the TV publishes titles**: with a Netflix episode playing, run *Android Debug Bridge: ADB command* with `dumpsys media_session` from Developer tools > Actions. The ADB entity's `adb_response` attribute must contain a `description=<title>, ...` line; without it only the app name can be shown.
+4. **TMDB token**: create a free TMDB account, copy the *API Read Access Token* (Settings > API) and add it to `config/secrets.yaml`:
+   ```yaml
+   tmdb_bearer: "Bearer eyJhbGciOi..."
+   ```
+5. **Entity ids**: Home Assistant YAML has no substitutions, so the entities are written in the file. Search and replace `media_player.living_tv_philips_oled_adb` (ADB player) and `media_player.living_tv_philips_oled_jellyfin` (Jellyfin player; leave it if you don't use the integration).
+6. **Copy the file** to `config/packages/` (File editor or Studio Code Server add-on, or the Samba share). Enable packages in `configuration.yaml` if you haven't already:
+   ```yaml
+   homeassistant:
+     packages: !include_dir_named packages
+   ```
+7. **Restart**: Developer tools > YAML > Check configuration, then restart. You should now have `sensor.omote_tv_now_playing`, `image.omote_tv_poster` and the `input_text.omote_tv_*` helpers.
+
+For a second TV, copy the file, replace the two entity ids and rename the `omote_tv_*` ids so both copies can coexist.
 
 ## Secrets
 

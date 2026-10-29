@@ -3,6 +3,15 @@
 # Included from omote.yaml; all ${...} values are set there.
 
 image:
+  # Card placeholder. Being RGB565 + alpha it also makes ESPHome enable
+  # LVGL's RGB565A8 support, without which LVGL can't scale the RGB565 cover
+  # for the card ("lv_draw_sw_transform: Color format 0x12 is not enabled")
+  - platform: file
+    file: "mdi:music"
+    id: img_music_placeholder
+    type: RGB565
+    transparency: alpha_channel
+    resize: 48x48
   - platform: online_image
     id: album_art
     url: "https://via.placeholder.com/100"
@@ -386,11 +395,11 @@ lvgl:
                   border_width: 0
                   scrollable: false
                   widgets:
-                    - label:
+                    - image:
                         align: center
-                        text_font: mdi_36
-                        text: "\U000F0387"
-                        text_color: 0x555555
+                        src: img_music_placeholder
+                        image_recolor: 0x555555
+                        image_recolor_opa: 100%
               - image:
                   id: img_album_art
                   x: -104

@@ -2,20 +2,88 @@
 # TV page: IR remote, TV media player, app launcher.
 # Included from omote.yaml; all ${...} values are set there.
 
+image:
+  # Poster / still of what the TV plays (see tv_now_playing). Posters (2:3)
+  # fill the screen; landscape stills are letterboxed.
+  - platform: online_image
+    id: tv_art
+    url: "https://via.placeholder.com/100"
+    format: JPEG
+    type: RGB565
+    resize: 240x360
+    on_download_finished:
+      - lvgl.image.update:
+          id: img_tv_art
+          src: tv_art
+      - globals.set:
+          id: tv_art_loaded
+          value: "true"
+      - lvgl.widget.redraw:
+      - script.execute: script_tv_art_update
+    on_error:
+      - logger.log:
+          level: WARN
+          format: "TV art download FAILED"
+
+globals:
+  - id: tv_art_loaded
+    type: bool
+    initial_value: "false"
+  # URL of the current TV art minus HA's rotating access token
+  - id: tv_art_key
+    type: std::string
+    initial_value: '""'
+  # Something plays on the TV and its art is loaded (power.yaml dock mode)
+  - id: tv_playing
+    type: bool
+    initial_value: "false"
+
 text_sensor:
-  # TV media player info
+  # Now playing (the TV itself, or a helper entity: see tv_now_playing)
   - platform: homeassistant
     id: tv_media_title
-    entity_id: ${tv_media_player}
+    entity_id: ${tv_now_playing}
     attribute: media_title
     on_value:
       - script.execute: script_tv_update_display
+      - script.execute: script_tv_art_sync
   - platform: homeassistant
     id: tv_media_artist
-    entity_id: ${tv_media_player}
+    entity_id: ${tv_now_playing}
     attribute: media_artist
     on_value:
       - script.execute: script_tv_update_display
+      - script.execute: script_tv_art_sync
+  - platform: homeassistant
+    id: tv_np_state
+    entity_id: ${tv_now_playing}
+    on_value:
+      - script.execute: script_tv_art_update
+  - platform: homeassistant
+    id: tv_np_picture
+    entity_id: ${tv_now_playing}
+    attribute: entity_picture
+    on_value:
+      - lambda: |-
+          std::string url = x;
+          if (!url.empty() && url.rfind("http", 0) != 0) url = std::string("${ha_url}") + url;
+          // HA rotates the token every few minutes: same picture, no download
+          std::string key = url;
+          const size_t t = key.find("token=");
+          if (t != std::string::npos) {
+            const size_t e = key.find('&', t);
+            key.erase(t, e == std::string::npos ? std::string::npos : e - t + 1);
+          }
+          if (key == id(tv_art_key)) return;
+          id(tv_art_key) = key;
+          if (url.empty()) {
+            id(tv_art_loaded) = false;
+            id(script_tv_art_update).execute();
+            return;
+          }
+          ESP_LOGD("tv", "TV art URL: %s", url.c_str());
+          id(tv_art).set_url(url);
+          id(tv_art).update();
   - platform: homeassistant
     id: tv_app_name
     entity_id: ${tv_media_player}
@@ -57,6 +125,88 @@ text_sensor:
       - script.execute: script_tv_update_display
 
 script:
+  # Full-screen art while the TV plays or is paused and art is loaded; tap
+  # for the controls (same behaviour as the music page)
+  - id: script_tv_art_update
+    then:
+      - lambda: |-
+          const std::string &st = id(tv_np_state).state;
+          const bool active = st == "playing" || st == "paused";
+          id(tv_playing) = st == "playing" && id(tv_art_loaded);
+          const bool show = active && id(tv_art_loaded);
+          const bool shown = !lv_obj_has_flag(id(tv_art_view), LV_OBJ_FLAG_HIDDEN);
+          if (show == shown) return;
+          if (show) {
+            // Bottom of the page: every TV widget stacks on top of the art
+            // and becomes its tap-to-show overlay
+            lv_obj_move_to_index(id(tv_art_view), 0);
+            lv_obj_remove_flag(id(tv_art_view), LV_OBJ_FLAG_HIDDEN);
+          } else {
+            lv_obj_add_flag(id(tv_art_view), LV_OBJ_FLAG_HIDDEN);
+          }
+      - script.execute:
+          id: script_tv_art_controls
+          show: false
+      - script.execute: script_tv_art_sync
+
+  # Show / hide the TV controls over the art (USER_1 marks what was hidden here)
+  - id: script_tv_art_controls
+    parameters:
+      show: bool
+    then:
+      - lambda: |-
+          lv_obj_t *view = id(tv_art_view);
+          const bool art = !lv_obj_has_flag(view, LV_OBJ_FLAG_HIDDEN);
+          const bool hide = art && !show;
+          if (show) lv_obj_remove_flag(id(tv_art_scrim), LV_OBJ_FLAG_HIDDEN);
+          else lv_obj_add_flag(id(tv_art_scrim), LV_OBJ_FLAG_HIDDEN);
+          // the title card is part of the controls; the strip replaces it
+          if (show) lv_obj_add_flag(id(tv_art_info), LV_OBJ_FLAG_HIDDEN);
+          else lv_obj_remove_flag(id(tv_art_info), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_t *page = lv_obj_get_parent(view);
+          const uint32_t n = lv_obj_get_child_count(page);
+          for (uint32_t i = lv_obj_get_index(view) + 1; i < n; i++) {
+            lv_obj_t *c = lv_obj_get_child(page, i);
+            if (hide) {
+              const bool popup = lv_obj_get_width(c) >= 240 && lv_obj_get_height(c) >= 320;
+              if (!popup && !lv_obj_has_flag(c, LV_OBJ_FLAG_HIDDEN)) {
+                lv_obj_add_flag(c, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_add_flag(c, LV_OBJ_FLAG_USER_1);
+              }
+            } else if (lv_obj_has_flag(c, LV_OBJ_FLAG_USER_1)) {
+              lv_obj_remove_flag(c, LV_OBJ_FLAG_USER_1);
+              lv_obj_remove_flag(c, LV_OBJ_FLAG_HIDDEN);
+            }
+          }
+      - if:
+          condition:
+            lambda: 'return show;'
+          then:
+            - script.execute: script_tv_art_controls_timer
+          else:
+            - script.stop: script_tv_art_controls_timer
+
+  - id: script_tv_art_sync
+    then:
+      - lambda: |-
+          auto copy = [](lv_obj_t *dst, lv_obj_t *src) {
+            const char *t = lv_label_get_text(src);
+            if (strcmp(lv_label_get_text(dst), t) != 0) lv_label_set_text(dst, t);
+          };
+          copy(id(lbl_tv_art_title), id(lbl_tv_title));
+          copy(id(lbl_tv_art_sub), id(lbl_tv_artist));
+
+  - id: script_tv_art_controls_timer
+    mode: restart
+    then:
+      - delay: 500ms
+      - wait_until:
+          condition:
+            lambda: 'return millis() - id(last_activity_time) >= ${art_controls_timeout_ms};'
+      - script.execute:
+          id: script_tv_art_controls
+          show: false
+
   # Compute and display What's Playing on the TV card (falling back to Android TV app_name/app_id/source or TV HT)
   - id: script_tv_update_display
     mode: restart
@@ -153,6 +303,7 @@ script:
             lv_label_set_text(id(lbl_tv_title), disp_title.c_str());
           if (strcmp(lv_label_get_text(id(lbl_tv_artist)), disp_sub.c_str()) != 0)
             lv_label_set_text(id(lbl_tv_artist), disp_sub.c_str());
+      - script.execute: script_tv_art_sync
 
   # TV control scripts - DPAD navigation
   - id: script_tv_up
@@ -344,11 +495,92 @@ lvgl:
         - script.execute:
             id: script_page_loaded
             page: 2
+        - script.execute: script_tv_art_update
       on_swipe_left:
         - script.execute: script_next_page
       on_swipe_right:
         - script.execute: script_prev_page
       widgets:
+        # ===== FULL-SCREEN ART (playing / paused; tap for controls) =====
+        # Moved to the bottom of the page when shown, so all TV widgets sit
+        # on top of it (see script_tv_art_update)
+        - obj:
+            id: tv_art_view
+            x: 0
+            y: 0
+            width: 240
+            height: 320
+            bg_color: 0x000000
+            border_width: 0
+            radius: 0
+            pad_all: 0
+            scrollable: false
+            hidden: true
+            on_click:
+              - script.execute:
+                  id: script_tv_art_controls
+                  show: !lambda 'return lv_obj_has_flag(id(tv_art_scrim), LV_OBJ_FLAG_HIDDEN);'
+            widgets:
+              - image:
+                  id: img_tv_art
+                  align: center
+                  src: tv_art
+              # Keeps the status bar icons readable over bright art
+              - obj:
+                  x: 0
+                  y: 0
+                  width: 240
+                  height: 28
+                  bg_color: 0x000000
+                  bg_opa: 45%
+                  border_width: 0
+                  radius: 0
+                  clickable: false
+              - obj:
+                  id: tv_art_scrim
+                  x: 0
+                  y: 28
+                  width: 240
+                  height: 292
+                  bg_color: 0x000000
+                  bg_opa: 70%
+                  border_width: 0
+                  radius: 0
+                  clickable: false
+                  hidden: true
+              - obj:
+                  id: tv_art_info
+                  x: 0
+                  y: 264
+                  width: 240
+                  height: 56
+                  bg_color: 0x000000
+                  bg_opa: 60%
+                  border_width: 0
+                  radius: 0
+                  pad_all: 0
+                  scrollable: false
+                  clickable: false
+                  widgets:
+                    - label:
+                        id: lbl_tv_art_title
+                        x: 8
+                        y: 6
+                        width: 224
+                        text_font: roboto_18
+                        text: ""
+                        text_color: 0xFFFFFF
+                        long_mode: scroll_circular
+                    - label:
+                        id: lbl_tv_art_sub
+                        x: 8
+                        y: 30
+                        width: 224
+                        text_font: roboto_14
+                        text: ""
+                        text_color: 0xBBBBBB
+                        long_mode: dot
+
         # ===== NOW PLAYING + POWER =====
         - obj:
             id: card_tv

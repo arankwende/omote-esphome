@@ -122,12 +122,17 @@ lvgl:
               - "2 min"
               - "5 min"
               - "10 min"
+            # script_settings_sync updating the dropdown fires this too: only
+            # write real changes, or the sync re-triggers itself
             on_value:
-              - number.set:
-                  id: cfg_sleep_timeout
-                  value: !lambda |-
-                    static const float secs[] = {30, 60, 120, 300, 600};
-                    return secs[std::min<int>(x, 4)];
+              - lambda: |-
+                  static const float secs[] = {30, 60, 120, 300, 600};
+                  const float v = secs[std::min<int>(x, 4)];
+                  if (id(cfg_sleep_timeout).state != v) {
+                    auto call = id(cfg_sleep_timeout).make_call();
+                    call.set_value(v);
+                    call.perform();
+                  }
         # Lift to wake
         - label:
             x: 10
@@ -144,13 +149,11 @@ lvgl:
               checked:
                 bg_color: 0x1DB954
             on_value:
-              - if:
-                  condition:
-                    lambda: 'return x;'
-                  then:
-                    - switch.turn_on: lift_to_wake
-                  else:
-                    - switch.turn_off: lift_to_wake
+              - lambda: |-
+                  if (x != id(lift_to_wake).state) {
+                    if (x) id(lift_to_wake).turn_on();
+                    else id(lift_to_wake).turn_off();
+                  }
         - label:
             x: 10
             y: 200
@@ -166,9 +169,13 @@ lvgl:
               - "Medium"
               - "High"
             on_value:
-              - select.set_index:
-                  id: cfg_motion_sensitivity
-                  index: !lambda 'return x;'
+              - lambda: |-
+                  auto cur = id(cfg_motion_sensitivity).active_index();
+                  if (!cur.has_value() || *cur != (size_t) x) {
+                    auto call = id(cfg_motion_sensitivity).make_call();
+                    call.set_index(x);
+                    call.perform();
+                  }
         # Info
         - obj:
             x: 5

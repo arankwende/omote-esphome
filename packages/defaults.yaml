@@ -17,6 +17,11 @@ substitutions:
   cover_entity_right: cover.room_blinds_right
   temp_sensor_entity: sensor.room_temperature
   tv_media_player: media_player.room_tv
+  # Entity the TV page reads "now playing" from: state (playing / paused...),
+  # media_title, media_artist and entity_picture. The TV itself by default;
+  # see homeassistant/omote_tv_now_playing.yaml for Netflix / Disney+ /
+  # Jellyfin titles and posters
+  tv_now_playing: ${tv_media_player}
   # Automation scripts for physical buttons (customize these)
   # Row 1: Button 1 and Button 4
   automation_row1_btn1: script.your_automation_1
@@ -140,5 +145,5 @@ substitutions:
   app_5_text_color: "0xFFFFFF"
   # Logger level: INFO keeps the remote responsive; DEBUG for troubleshooting
   log_level: INFO
-  # Music page: controls over the full-screen cover hide after this long (ms)
+  # Music / TV pages: controls over the full-screen art hide after this long (ms)
   art_controls_timeout_ms: "5000"
