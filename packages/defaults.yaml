@@ -110,12 +110,18 @@ substitutions:
   blinds_right_name: "Right"
   ma_morning_name: "Morning"
   ma_evening_name: "Evening"
-  # Pages: total count (drives the page dots) and the Settings page position
+  # Pages: total count (drives the page dots) and page indices
   page_count: "4"
+  room_page_index: "0"
+  music_page_index: "1"
+  tv_page_index: "2"
+  speakers_page_index: "-1"
   settings_page_index: "3"
+  # Physical D-pad on the Room page: true = climate/light control, false = TV IR
+  room_dpad_controls_room: "true"
   # Keypad backlight stays on this long after motion at night (ms)
   keypad_backlight_ms: "20000"
-  # TV page app buttons (row 1: apps 1-3, row 2: apps 4-5). `source` must match
+  # TV page app buttons (row 1: apps 1-3, row 2: apps 4-6). `source` must match
   # the TV's source list. For logos, define an icon font in your device file
   # and set app_N_font / app_N_text to it (see examples/).
   app_1_source: "Jellyfin"
@@ -143,7 +149,12 @@ substitutions:
   app_5_font: roboto_14
   app_5_bg_color: "0x113CCF"
   app_5_text_color: "0xFFFFFF"
+  app_6_source: "YouTube"
+  app_6_text: "YouTube"
+  app_6_font: roboto_14
+  app_6_bg_color: "0xFF0000"
+  app_6_text_color: "0xFFFFFF"
   # Logger level: INFO keeps the remote responsive; DEBUG for troubleshooting
   log_level: INFO
-  # Music / TV pages: controls over the full-screen art hide after this long (ms)
+  # Music / TV pages: full-screen art appears (and controls hide) after this idle time (ms)
   art_controls_timeout_ms: "5000"

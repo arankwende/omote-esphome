@@ -34,13 +34,16 @@ text_sensor:
           else if (x == "lightning" || x == "lightning-rainy") icon = "\U000F0593";
           else if (x == "sunny" || x == "clear-night") icon = "\U000F0599";
 
-          // Update all weather icons using LVGL C API
+          // Update weather icon using LVGL C API
           lv_label_set_text(id(lbl_weather), icon.c_str());
 
 globals:
   - id: current_page
     type: int
     initial_value: "1"
+  - id: prev_non_settings_page
+    type: int
+    initial_value: "0"
   - id: touch_x_start
     type: int
     initial_value: "0"
@@ -62,20 +65,32 @@ globals:
   - id: boot_done
     type: bool
     initial_value: "false"
+  - id: data_is_stale
+    type: bool
+    initial_value: "true"
+  - id: popup_was_open
+    type: bool
+    initial_value: "false"
 
 script:
-  # Page indicator dots + current_page (called from each page's on_load)
-  # Centre one dot per page under the clock (up to 5 pages)
+  # Page indicator pill + dots (called on boot and from each page's on_load).
+  # Active page expands to a 16px pill; inactive pages are 6px dots.
   - id: script_layout_page_dots
     then:
       - lambda: |-
           lv_obj_t *dots[] = {id(dot_page_0), id(dot_page_1), id(dot_page_2), id(dot_page_3), id(dot_page_4)};
           const int n = ${page_count};
-          const int x0 = 120 - (n * 6 + (n - 1) * 2) / 2;
+          const int active = id(current_page);
+          const int total_w = n > 0 ? (16 + (n - 1) * 10) : 0;
+          int x = 120 - total_w / 2;
           for (int i = 0; i < 5; i++) {
             if (i < n) {
-              lv_obj_set_x(dots[i], x0 + i * 8);
+              const int w = (i == active) ? 16 : 6;
+              lv_obj_set_width(dots[i], w);
+              lv_obj_set_x(dots[i], x);
+              lv_obj_set_style_bg_color(dots[i], lv_color_hex(i == active ? 0xFFFFFF : 0x4A4A4A), LV_PART_MAIN);
               lv_obj_remove_flag(dots[i], LV_OBJ_FLAG_HIDDEN);
+              x += w + 4;
             } else {
               lv_obj_add_flag(dots[i], LV_OBJ_FLAG_HIDDEN);
             }
@@ -89,13 +104,29 @@ script:
           id: current_page
           value: !lambda 'return page;'
       - lambda: |-
+          if (page != ${settings_page_index}) id(prev_non_settings_page) = page;
           if (id(boot_done) && id(saved_page) != page) id(saved_page) = page;
-          lv_obj_t *dots[] = {id(dot_page_0), id(dot_page_1), id(dot_page_2), id(dot_page_3), id(dot_page_4)};
-          for (int i = 0; i < ${page_count}; i++)
-            lv_obj_set_style_bg_color(dots[i], lv_color_hex(i == page ? 0xFFFFFF : 0x555555), LV_PART_MAIN);
+      - script.execute: script_layout_page_dots
 
-  # Short pill at the bottom of the screen confirming what a physical key did.
-  # Turns red when the action can't work right now (no WiFi / HA offline).
+  # Status-bar right-side tap: jump straight to Settings, or return if already there
+  - id: script_toggle_settings_page
+    then:
+      - if:
+          condition:
+            lambda: 'return id(current_page) == ${settings_page_index};'
+          then:
+            - lambda: |-
+                int target = id(prev_non_settings_page);
+                if (target < 0 || target >= ${page_count} || target == ${settings_page_index}) target = 0;
+                id(lvgl_comp).show_page(target, LV_SCREEN_LOAD_ANIM_MOVE_RIGHT, 200);
+          else:
+            - lvgl.page.show:
+                id: settings_page
+                animation: MOVE_LEFT
+                time: 200ms
+
+  # Compact Dynamic-Island pill over the top status bar confirming physical key
+  # actions without covering bottom-row touch buttons. Turns red when offline.
   - id: script_toast
     mode: restart
     parameters:
@@ -104,16 +135,20 @@ script:
     then:
       - lambda: |-
           std::string msg = text;
-          uint32_t bg = 0x333333;
+          uint32_t bg = 0x262626;
+          uint32_t border = 0x484848;
           if (needs >= 1 && !wifi::global_wifi_component->is_connected()) {
             msg = "No WiFi: " + text;
             bg = 0xB71C1C;
+            border = 0xEF5350;
           } else if (needs >= 2 && !api::global_api_server->is_connected()) {
             msg = "HA offline: " + text;
             bg = 0xB71C1C;
+            border = 0xEF5350;
           }
           lv_label_set_text(id(lbl_toast), msg.c_str());
           lv_obj_set_style_bg_color(id(toast), lv_color_hex(bg), LV_PART_MAIN);
+          lv_obj_set_style_border_color(id(toast), lv_color_hex(border), LV_PART_MAIN);
           lv_obj_remove_flag(id(toast), LV_OBJ_FLAG_HIDDEN);
       - delay: 1200ms
       - lvgl.widget.hide: toast
@@ -123,20 +158,72 @@ script:
     parameters:
       stale: bool
     then:
+      - globals.set:
+          id: data_is_stale
+          value: !lambda 'return stale;'
       - lambda: |-
           const lv_opa_t opa = stale ? LV_OPA_40 : LV_OPA_COVER;
-          lv_obj_t *widgets[] = {id(card_climate), id(btn_light), id(btn_blinds_left), id(btn_blinds_right),
-                                 id(card_tv), ${music_needs} == 2 ? (lv_obj_t *) id(card_music) : nullptr};
+          lv_obj_t *widgets[] = {id(card_climate), id(btn_light), id(btn_light_tune),
+                                 id(btn_blinds_left), id(btn_blinds_right), id(card_tv),
+                                 ${music_needs} == 2 ? (lv_obj_t *) id(card_music) : nullptr};
           for (auto *w : widgets)
             if (w != nullptr) lv_obj_set_style_opa(w, opa, LV_PART_MAIN);
+      - script.execute: script_update_clock
 
   - id: script_update_clock
     then:
-      - lvgl.label.update:
-          id: lbl_time
-          text: !lambda 'return id(homeassistant_time).now().strftime("%H:%M");'
+      - lambda: |-
+          auto now = id(homeassistant_time).now();
+          std::string txt = now.is_valid() ? now.strftime("%H:%M")
+                                           : (id(data_is_stale) ? std::string("Sync…") : std::string("--:--"));
+          lv_label_set_text(id(lbl_time), txt.c_str());
+          lv_obj_set_style_text_color(id(lbl_time),
+                                      lv_color_hex(id(data_is_stale) ? 0xF5A623 : 0xFFFFFF), LV_PART_MAIN);
 
-  # Page navigation scripts (3 pages: room, music, tv)
+  # Optional-package hooks (overridden by music-assistant.yaml / speakers-ma.yaml)
+  - id: script_close_popups_ext
+    then:
+      - lambda: 'return;'
+
+  - id: script_speakers_dpad
+    parameters:
+      dir: string
+    then:
+      - lambda: 'return;'
+
+  # Dismiss any open modal popup or full-screen art overlay; sets popup_was_open
+  - id: script_close_any_popup
+    then:
+      - globals.set:
+          id: popup_was_open
+          value: 'false'
+      - lambda: |-
+          lv_obj_t *modals[] = {id(blinds_popup), id(light_popup), id(tv_source_popup)};
+          for (auto *m : modals) {
+            if (!lv_obj_has_flag(m, LV_OBJ_FLAG_HIDDEN)) {
+              lv_obj_add_flag(m, LV_OBJ_FLAG_HIDDEN);
+              id(popup_was_open) = true;
+            }
+          }
+      - script.execute: script_close_popups_ext
+      - if:
+          condition:
+            lambda: 'return !id(popup_was_open) && id(current_page) == ${music_page_index} && !lv_obj_has_flag(id(music_art_view), LV_OBJ_FLAG_HIDDEN);'
+          then:
+            - script.execute: script_music_art_details
+            - globals.set:
+                id: popup_was_open
+                value: 'true'
+      - if:
+          condition:
+            lambda: 'return !id(popup_was_open) && id(current_page) == ${tv_page_index} && !lv_obj_has_flag(id(tv_art_view), LV_OBJ_FLAG_HIDDEN);'
+          then:
+            - script.execute: script_tv_art_details
+            - globals.set:
+                id: popup_was_open
+                value: 'true'
+
+  # Page navigation scripts
   - id: script_next_page
     then:
       - lvgl.page.next:
@@ -192,12 +279,19 @@ font:
       # Blinds open/close arrows
       - "\U000F0143"  # mdi:chevron-up
       - "\U000F0140"  # mdi:chevron-down
-      # Streaming service icons
+      # Streaming service & TV utility icons
       - "\U000F0746"  # mdi:netflix
       - "\U000F0AD4"  # mdi:movie-open (for Prime Video)
-      # Transport controls
+      - "\U000F05C3"  # mdi:youtube
+      - "\U000F0841"  # mdi:video-input-hdmi
+      - "\U000F004D"  # mdi:arrow-left
+      # Transport & UI controls
       - "\U000F045F"  # mdi:rewind
       - "\U000F0211"  # mdi:fast-forward
+      - "\U000F0156"  # mdi:close
+      - "\U000F062E"  # mdi:tune
+      - "\U000F0493"  # mdi:cog
+      - "\U000F01D8"  # mdi:dots-horizontal
       # Playlist buttons
       - "\U000F0594"  # mdi:weather-night (evening)
       # Battery icons
@@ -217,7 +311,7 @@ font:
       - "\U000F04DE"  # mdi:stove (kitchen)
       - "\U000F02DC"  # mdi:home (default)
       - "\U000F04DB"  # mdi:stop (blinds)
-      - "\U000F0279"  # mdi:format-list-bulleted (music details)
+      - "\U000F0279"  # mdi:format-list-bulleted (music/tv details)
   # Material Design Icons, pinned (codepoints can shift between versions)
   - file: "https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf"
     id: mdi_36
@@ -230,36 +324,35 @@ font:
       - "\U000F04AE"  # mdi:skip-previous
       - "\U000F0238"  # mdi:thermometer
       - "\U000F0387"  # mdi:music-note (artwork placeholder)
+      - "\U000F05C3"  # mdi:youtube
   - file: "gfonts://Roboto"
     id: roboto_12
     size: 12
     glyphsets: [GF_Latin_Core]  # accents and ñ (default set is ASCII-only)
-    # Roboto lacks the set's 11 stand-alone combining marks; precomposed
-    # letters (á, é, ñ...) are all there
     ignore_missing_glyphs: true
     bpp: 4
   - file: "gfonts://Roboto"
     id: roboto_14
     size: 14
-    glyphsets: [GF_Latin_Core]  # accents and ñ (default set is ASCII-only)
-    # Roboto lacks the set's 11 stand-alone combining marks; precomposed
-    # letters (á, é, ñ...) are all there
+    glyphsets: [GF_Latin_Core]
     ignore_missing_glyphs: true
     bpp: 4
-  - file: "gfonts://Roboto"
+  - file: "gfonts://Roboto@500"
+    id: roboto_14_med
+    size: 14
+    glyphsets: [GF_Latin_Core]
+    ignore_missing_glyphs: true
+    bpp: 4
+  - file: "gfonts://Roboto@500"
     id: roboto_18
     size: 18
-    glyphsets: [GF_Latin_Core]  # accents and ñ (default set is ASCII-only)
-    # Roboto lacks the set's 11 stand-alone combining marks; precomposed
-    # letters (á, é, ñ...) are all there
+    glyphsets: [GF_Latin_Core]
     ignore_missing_glyphs: true
     bpp: 4
-  - file: "gfonts://Roboto"
+  - file: "gfonts://Roboto@700"
     id: roboto_24
     size: 24
-    glyphsets: [GF_Latin_Core]  # accents and ñ (default set is ASCII-only)
-    # Roboto lacks the set's 11 stand-alone combining marks; precomposed
-    # letters (á, é, ñ...) are all there
+    glyphsets: [GF_Latin_Core]
     ignore_missing_glyphs: true
     bpp: 4
 
@@ -274,24 +367,61 @@ lvgl:
   buffer_size: 25%
   bottom_layer:
     bg_color: 0x000000
+
+  # Shared visual tokens across all pages and modals
+  style_definitions:
+    - id: style_card
+      bg_color: 0x161616
+      bg_opa: 100%
+      radius: 12
+      border_width: 1
+      border_color: 0x2C2C2C
+      pad_all: 0
+    - id: style_surface_btn
+      bg_color: 0x222222
+      bg_opa: 100%
+      radius: 10
+      border_width: 1
+      border_color: 0x323232
+    - id: style_popup_backdrop
+      bg_color: 0x000000
+      bg_opa: 85%
+      border_width: 0
+      radius: 0
+      pad_all: 0
+    - id: style_popup_sheet
+      bg_color: 0x1E1E1E
+      bg_opa: 100%
+      radius: 16
+      border_width: 1
+      border_color: 0x363636
+      pad_all: 0
+    - id: style_close_btn
+      bg_color: 0x333333
+      bg_opa: 100%
+      radius: 18
+      border_width: 0
+
   # One consistent dark look. Buttons give a small "push" when pressed instead
   # of changing colour, so brand-coloured buttons keep their colour.
   theme:
     dark_mode: true
     button:
-      bg_color: 0x2A2A2A
+      bg_color: 0x242424
       text_color: 0xFFFFFF
       radius: 10
       border_width: 0
       shadow_width: 0
       pressed:
-        bg_opa: 70%
+        bg_opa: 72%
         transform_width: -2
         transform_height: -2
     slider:
       bg_color: 0x333333
+      radius: 6
       indicator:
         bg_color: 0x1DB954
+        radius: 6
       knob:
         bg_color: 0xFFFFFF
         pad_all: 4
@@ -308,14 +438,14 @@ lvgl:
           text_color: 0x9E9E9E
       - label:
           id: lbl_weather
-          x: 28
+          x: 27
           y: 3
           text_font: mdi_20
           text: "\U000F0599"
           text_color: 0xFFCC00
       - label:
           id: lbl_outdoor_temp
-          x: 50
+          x: 49
           y: 7
           width: 36
           text_font: roboto_12
@@ -325,64 +455,73 @@ lvgl:
           id: lbl_time
           align: top_mid
           y: 3
-          text_font: roboto_14
+          text_font: roboto_14_med
           text: "--:--"
-          text_color: 0xFFFFFF
-      # Page indicator: room / music / tv
+          text_color: 0xF5A623
+      # Morphing pill page indicator (active = 16px pill, inactive = 6px dot)
       - obj:
           id: dot_page_0
-          x: 105
+          x: 97
           y: 22
           width: 6
-          height: 6
+          height: 5
           radius: 3
-          bg_color: 0x555555
+          bg_color: 0x4A4A4A
           border_width: 0
           clickable: false
       - obj:
           id: dot_page_1
-          x: 113
+          x: 107
           y: 22
-          width: 6
-          height: 6
+          width: 16
+          height: 5
           radius: 3
           bg_color: 0xFFFFFF
           border_width: 0
           clickable: false
       - obj:
           id: dot_page_2
-          x: 121
+          x: 127
           y: 22
           width: 6
-          height: 6
+          height: 5
           radius: 3
-          bg_color: 0x555555
+          bg_color: 0x4A4A4A
           border_width: 0
           clickable: false
       - obj:
           id: dot_page_3
-          x: 129
+          x: 137
           y: 22
           width: 6
-          height: 6
+          height: 5
           radius: 3
-          bg_color: 0x555555
+          bg_color: 0x4A4A4A
           border_width: 0
           clickable: false
       - obj:
           id: dot_page_4
-          x: 137
+          x: 147
           y: 22
           width: 6
-          height: 6
+          height: 5
           radius: 3
-          bg_color: 0x555555
+          bg_color: 0x4A4A4A
           border_width: 0
           clickable: false
           hidden: true
       - label:
+          id: lbl_battery_pct
+          x: 152
+          y: 7
+          width: 36
+          text_align: right
+          text_font: roboto_12
+          text: ""
+          text_color: 0xBDBDBD
+      - label:
           id: lbl_battery
-          x: 190
+          x: 191
           y: 3
           text_font: mdi_20
           text: "\U000F008E"
@@ -394,17 +533,31 @@ lvgl:
           text_font: mdi_20
           text: "\U000F0928"
           text_color: 0xE74C3C
-      # Key-press feedback (see script_toast)
+      # 1-tap shortcut over battery + WiFi area -> jump to/from Settings
+      - obj:
+          id: btn_status_settings
+          x: 156
+          y: 0
+          width: 84
+          height: 28
+          bg_opa: 0%
+          border_width: 0
+          radius: 0
+          scrollable: false
+          on_click:
+            - script.execute: script_toggle_settings_page
+      # Top Dynamic-Island toast (overlays status bar briefly; never blocks bottom buttons)
       - obj:
           id: toast
-          align: bottom_mid
-          y: -10
-          width: 214
-          height: 36
-          radius: 18
-          bg_color: 0x333333
-          bg_opa: 95%
-          border_width: 0
+          align: top_mid
+          y: 2
+          width: 230
+          height: 26
+          radius: 13
+          bg_color: 0x262626
+          bg_opa: 96%
+          border_width: 1
+          border_color: 0x484848
           pad_all: 0
           clickable: false
           hidden: true
@@ -412,9 +565,27 @@ lvgl:
             - label:
                 id: lbl_toast
                 align: center
-                width: 200
+                width: 214
                 long_mode: dot
                 text_align: center
-                text_font: roboto_14
+                text_font: roboto_14_med
                 text: ""
                 text_color: 0xFFFFFF
+      # Transparent touch shield active while dimmed / screen-off so waking by
+      # touch never triggers an underlying button
+      - obj:
+          id: wake_touch_shield
+          x: 0
+          y: 0
+          width: 240
+          height: 320
+          bg_opa: 0%
+          border_width: 0
+          radius: 0
+          pad_all: 0
+          scrollable: false
+          clickable: true
+          hidden: true
+          on_click:
+            - lvgl.widget.hide: wake_touch_shield
+            - script.execute: script_reset_backlight_timeout

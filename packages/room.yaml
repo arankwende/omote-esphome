@@ -2,6 +2,17 @@
 # Room page: climate, light, blinds.
 # Included from omote.yaml; all ${...} values are set there.
 
+esphome:
+  on_boot:
+    - priority: -150
+      then:
+        # Prevent horizontal slider drags from bubbling into page-swipe gestures
+        - lambda: |-
+            for (auto *s : {id(slider_blinds), id(slider_light)}) {
+              lv_obj_remove_flag(s, LV_OBJ_FLAG_GESTURE_BUBBLE);
+              lv_obj_set_ext_click_area(s, 10);
+            }
+
 sensor:
   # Home Assistant sensors
   - platform: homeassistant
@@ -34,18 +45,20 @@ sensor:
     entity_id: ${cover_entity_left}
     attribute: current_position
     on_value:
-      - lvgl.label.update:
-          id: lbl_blinds_left_pct
-          text: !lambda 'return str_sprintf("%d%% open", (int) x);'
+      - lambda: |-
+          const int p = std::isnan(x) ? 0 : clamp((int) lroundf(x), 0, 100);
+          lv_label_set_text(id(lbl_blinds_left_pct), std::isnan(x) ? "--" : str_sprintf("%d%% open", p).c_str());
+          lv_bar_set_value(id(bar_blinds_left), p, LV_ANIM_ON);
       - script.execute: script_blinds_sync_popup
   - platform: homeassistant
     id: blinds_position_right
     entity_id: ${cover_entity_right}
     attribute: current_position
     on_value:
-      - lvgl.label.update:
-          id: lbl_blinds_right_pct
-          text: !lambda 'return str_sprintf("%d%% open", (int) x);'
+      - lambda: |-
+          const int p = std::isnan(x) ? 0 : clamp((int) lroundf(x), 0, 100);
+          lv_label_set_text(id(lbl_blinds_right_pct), std::isnan(x) ? "--" : str_sprintf("%d%% open", p).c_str());
+          lv_bar_set_value(id(bar_blinds_right), p, LV_ANIM_ON);
       - script.execute: script_blinds_sync_popup
   # Light brightness (0-255; unknown while the light is off)
   - platform: homeassistant
@@ -82,8 +95,41 @@ globals:
   - id: blinds_sel
     type: int
     initial_value: "0"
+  - id: blinds_pending_pos
+    type: int
+    initial_value: "-1"
+  - id: light_pending_pct
+    type: int
+    initial_value: "-1"
 
 script:
+  # Optimistic HVAC mode setter
+  - id: script_climate_set_mode
+    parameters:
+      mode: string
+    then:
+      - lambda: |-
+          const std::pair<lv_obj_t *, const char *> modes[] = {
+              {id(btn_climate_off), "off"}, {id(btn_climate_cool), "cool"}, {id(btn_climate_heat), "heat"}};
+          for (auto &m : modes) {
+            if (mode == m.second) lv_obj_add_state(m.first, LV_STATE_CHECKED);
+            else lv_obj_remove_state(m.first, LV_STATE_CHECKED);
+          }
+      - if:
+          condition:
+            lambda: 'return mode == "off";'
+          then:
+            - homeassistant.action:
+                action: climate.turn_off
+                data:
+                  entity_id: ${climate_entity}
+          else:
+            - homeassistant.action:
+                action: climate.set_hvac_mode
+                data:
+                  entity_id: ${climate_entity}
+                  hvac_mode: !lambda 'return mode;'
+
   # Climate +/-: update the label immediately and send one request once the
   # user stops tapping (instead of one HA call per tap based on stale state)
   - id: script_climate_adjust
@@ -93,7 +139,7 @@ script:
       - lambda: |-
           float t = id(climate_pending_target);
           if (!id(script_climate_send).is_running() || std::isnan(t)) t = id(climate_target_temp).state;
-          if (std::isnan(t)) return;
+          if (std::isnan(t)) t = 22.0f;
           t = clamp(t + delta, 16.0f, 30.0f);
           id(climate_pending_target) = t;
           lv_label_set_text(id(lbl_target_temp), str_sprintf("%.0f°", t).c_str());
@@ -122,37 +168,113 @@ script:
           value: !lambda 'return side;'
       - script.execute: script_blinds_sync_popup
       - lvgl.widget.show: blinds_popup
+
+  # Long-press a blinds tile: toggle fully open (<50%) or fully closed (>=50%)
+  - id: script_quick_toggle_blinds
+    parameters:
+      side: int
+    then:
+      - lambda: |-
+          const float pos = side == 0 ? id(blinds_position_left).state : id(blinds_position_right).state;
+          const bool open_it = std::isnan(pos) || pos < 50.0f;
+          const std::string label = std::string(side == 0 ? "${blinds_left_name}: " : "${blinds_right_name}: ") +
+                                    (open_it ? "Opening" : "Closing");
+          id(script_toast).execute(label, 2);
+      - if:
+          condition:
+            lambda: |-
+              const float pos = side == 0 ? id(blinds_position_left).state : id(blinds_position_right).state;
+              return std::isnan(pos) || pos < 50.0f;
+          then:
+            - homeassistant.action:
+                action: cover.open_cover
+                data:
+                  entity_id: !lambda 'return side == 0 ? "${cover_entity_left}" : "${cover_entity_right}";'
+          else:
+            - homeassistant.action:
+                action: cover.close_cover
+                data:
+                  entity_id: !lambda 'return side == 0 ? "${cover_entity_left}" : "${cover_entity_right}";'
+
   - id: script_blinds_sync_popup
     then:
       - lambda: |-
           const bool left = id(blinds_sel) == 0;
           const float pos = left ? id(blinds_position_left).state : id(blinds_position_right).state;
           lv_label_set_text(id(lbl_popup_blinds_title), left ? "${blinds_left_name} blinds" : "${blinds_right_name} blinds");
-          lv_label_set_text(id(lbl_popup_blinds_pct), std::isnan(pos) ? "--" : str_sprintf("%d%%", (int) pos).c_str());
+          lv_label_set_text(id(lbl_popup_blinds_pct), std::isnan(pos) ? "--" : str_sprintf("%d%%", (int) lroundf(pos)).c_str());
           if (!std::isnan(pos) && !lv_obj_has_state(id(slider_blinds), LV_STATE_PRESSED))
-            lv_slider_set_value(id(slider_blinds), (int) pos, LV_ANIM_ON);
+            lv_slider_set_value(id(slider_blinds), (int) lroundf(pos), LV_ANIM_ON);
 
-  # Light button + brightness popup, from light_state and light_brightness
+  - id: script_blinds_step_send
+    mode: restart
+    then:
+      - delay: 650ms
+      - if:
+          condition:
+            lambda: 'return id(blinds_pending_pos) >= 0;'
+          then:
+            - homeassistant.action:
+                action: cover.set_cover_position
+                data:
+                  entity_id: !lambda 'return id(blinds_sel) == 0 ? "${cover_entity_left}" : "${cover_entity_right}";'
+                  position: !lambda 'return id(blinds_pending_pos);'
+            - globals.set:
+                id: blinds_pending_pos
+                value: '-1'
+
+  # Light button + brightness bar + popup, from light_state and light_brightness
   - id: script_light_refresh
     then:
       - lambda: |-
           const std::string &st = id(light_state).state;
           const bool on = st == "on";
           const float b = id(light_brightness).state;
-          const int pct = std::isnan(b) ? -1 : (int) lroundf(b / 2.55f);
+          const int pct = std::isnan(b) ? -1 : clamp((int) lroundf(b / 2.55f), 0, 100);
           if (on) lv_obj_add_state(id(btn_light), LV_STATE_CHECKED);
           else lv_obj_remove_state(id(btn_light), LV_STATE_CHECKED);
+          lv_label_set_text(id(lbl_light_icon), on ? "\U000F0335" : "\U000F0336");
+          lv_obj_set_style_text_color(id(lbl_light_icon), lv_color_hex(on ? 0xFFC107 : 0x9E9E9E), LV_PART_MAIN);
           std::string txt = on ? (pct >= 0 ? str_sprintf("%d%%", pct) : std::string("On"))
                                : std::string(st == "off" ? "Off" : "--");
           lv_label_set_text(id(lbl_light_state), txt.c_str());
           lv_label_set_text(id(lbl_popup_light_pct), txt.c_str());
+          const int bar_val = on ? (pct >= 0 ? pct : 100) : 0;
+          lv_bar_set_value(id(bar_light_pct), bar_val, LV_ANIM_ON);
           if (!lv_obj_has_state(id(slider_light), LV_STATE_PRESSED))
-            lv_slider_set_value(id(slider_light), on && pct >= 0 ? pct : 0, LV_ANIM_ON);
+            lv_slider_set_value(id(slider_light), on && pct >= 0 ? std::max(1, pct) : 1, LV_ANIM_ON);
+
+  - id: script_light_toggle_optimistic
+    then:
+      - lambda: |-
+          const bool next_on = !lv_obj_has_state(id(btn_light), LV_STATE_CHECKED);
+          if (next_on) lv_obj_add_state(id(btn_light), LV_STATE_CHECKED);
+          else lv_obj_remove_state(id(btn_light), LV_STATE_CHECKED);
+          lv_label_set_text(id(lbl_light_icon), next_on ? "\U000F0335" : "\U000F0336");
+          lv_obj_set_style_text_color(id(lbl_light_icon), lv_color_hex(next_on ? 0xFFC107 : 0x9E9E9E), LV_PART_MAIN);
+          lv_label_set_text(id(lbl_light_state), next_on ? "On" : "Off");
+          lv_bar_set_value(id(bar_light_pct), next_on ? 100 : 0, LV_ANIM_ON);
+      - homeassistant.action:
+          action: light.toggle
+          data:
+            entity_id: ${light_entity}
 
   - id: script_light_set
     parameters:
       pct: int
     then:
+      - lambda: |-
+          const bool on = pct > 0;
+          if (on) lv_obj_add_state(id(btn_light), LV_STATE_CHECKED);
+          else lv_obj_remove_state(id(btn_light), LV_STATE_CHECKED);
+          lv_label_set_text(id(lbl_light_icon), on ? "\U000F0335" : "\U000F0336");
+          lv_obj_set_style_text_color(id(lbl_light_icon), lv_color_hex(on ? 0xFFC107 : 0x9E9E9E), LV_PART_MAIN);
+          const std::string txt = on ? str_sprintf("%d%%", pct) : std::string("Off");
+          lv_label_set_text(id(lbl_light_state), txt.c_str());
+          lv_label_set_text(id(lbl_popup_light_pct), txt.c_str());
+          lv_bar_set_value(id(bar_light_pct), on ? pct : 0, LV_ANIM_ON);
+          if (on && !lv_obj_has_state(id(slider_light), LV_STATE_PRESSED))
+            lv_slider_set_value(id(slider_light), pct, LV_ANIM_ON);
       - if:
           condition:
             lambda: 'return pct <= 0;'
@@ -168,6 +290,105 @@ script:
                   entity_id: ${light_entity}
                   brightness_pct: !lambda 'return pct;'
 
+  - id: script_light_step_send
+    mode: restart
+    then:
+      - delay: 500ms
+      - if:
+          condition:
+            lambda: 'return id(light_pending_pct) >= 0;'
+          then:
+            - script.execute:
+                id: script_light_set
+                pct: !lambda 'return id(light_pending_pct);'
+            - globals.set:
+                id: light_pending_pct
+                value: '-1'
+
+  # Physical D-pad handler for Room modals and the Room page itself
+  - id: script_room_dpad
+    parameters:
+      dir: string
+    then:
+      - if:
+          condition:
+            lambda: 'return !lv_obj_has_flag(id(blinds_popup), LV_OBJ_FLAG_HIDDEN);'
+          then:
+            - if:
+                condition:
+                  lambda: 'return dir == "center";'
+                then:
+                  - homeassistant.action:
+                      action: cover.stop_cover
+                      data:
+                        entity_id: !lambda 'return id(blinds_sel) == 0 ? "${cover_entity_left}" : "${cover_entity_right}";'
+                else:
+                  - lambda: |-
+                      const int cur = id(blinds_pending_pos) >= 0 ? id(blinds_pending_pos)
+                                                                  : (int) lv_slider_get_value(id(slider_blinds));
+                      const int step = (dir == "up" || dir == "right") ? 10 : -10;
+                      const int next = clamp(cur + step, 0, 100);
+                      id(blinds_pending_pos) = next;
+                      lv_slider_set_value(id(slider_blinds), next, LV_ANIM_ON);
+                      lv_label_set_text(id(lbl_popup_blinds_pct), str_sprintf("%d%%", next).c_str());
+                  - script.execute: script_blinds_step_send
+          else:
+            - if:
+                condition:
+                  lambda: 'return !lv_obj_has_flag(id(light_popup), LV_OBJ_FLAG_HIDDEN);'
+                then:
+                  - if:
+                      condition:
+                        lambda: 'return dir == "center";'
+                      then:
+                        - script.execute: script_light_toggle_optimistic
+                      else:
+                        - lambda: |-
+                            const bool was_on = lv_obj_has_state(id(btn_light), LV_STATE_CHECKED);
+                            const int cur = id(light_pending_pct) >= 0 ? id(light_pending_pct)
+                                            : (was_on ? (int) lv_slider_get_value(id(slider_light)) : 0);
+                            const int step = (dir == "up" || dir == "right") ? 10 : -10;
+                            const int next = clamp(cur + step, 0, 100);
+                            id(light_pending_pct) = next;
+                            if (next > 0) lv_slider_set_value(id(slider_light), next, LV_ANIM_ON);
+                            lv_label_set_text(id(lbl_popup_light_pct),
+                                              next > 0 ? str_sprintf("%d%%", next).c_str() : "Off");
+                        - script.execute: script_light_step_send
+                else:
+                  # Room page active with no popup open
+                  - if:
+                      condition:
+                        lambda: 'return dir == "up" || dir == "down";'
+                      then:
+                        - script.execute:
+                            id: script_climate_adjust
+                            delta: !lambda 'return dir == "up" ? 1.0f : -1.0f;'
+                        - script.execute:
+                            id: script_toast
+                            text: !lambda 'return str_sprintf("Target: %.0f°", id(climate_pending_target));'
+                            needs: 2
+                      else:
+                        - if:
+                            condition:
+                              lambda: 'return dir == "center";'
+                            then:
+                              - script.execute:
+                                  id: script_toast
+                                  text: "${light_name}"
+                                  needs: 2
+                              - script.execute: script_light_toggle_optimistic
+                            else:
+                              - lambda: |-
+                                  const bool was_on = lv_obj_has_state(id(btn_light), LV_STATE_CHECKED);
+                                  const float b = id(light_brightness).state;
+                                  const int cur = id(light_pending_pct) >= 0 ? id(light_pending_pct)
+                                                  : (was_on ? (std::isnan(b) ? 50 : (int) lroundf(b / 2.55f)) : 0);
+                                  const int next = clamp(cur + (dir == "right" ? 10 : -10), 0, 100);
+                                  id(light_pending_pct) = next;
+                                  id(script_toast).execute(
+                                      next > 0 ? str_sprintf("${light_name}: %d%%", next) : std::string("${light_name}: Off"), 2);
+                              - script.execute: script_light_step_send
+
 lvgl:
   pages:
     # ==================== PAGE 1: ROOM CONTROL ====================
@@ -176,7 +397,7 @@ lvgl:
       on_load:
         - script.execute:
             id: script_page_loaded
-            page: 0
+            page: ${room_page_index}
       on_unload:
         - lvgl.widget.hide: [blinds_popup, light_popup]
       on_swipe_left:
@@ -191,10 +412,7 @@ lvgl:
             y: 32
             width: 230
             height: 108
-            bg_color: 0x1A1A1A
-            radius: 12
-            border_width: 0
-            pad_all: 0
+            styles: style_card
             scrollable: false
             widgets:
               # Current room temperature
@@ -220,7 +438,7 @@ lvgl:
                   width: 38
                   height: 38
                   radius: 19
-                  bg_color: 0x333333
+                  bg_color: 0x2C2C2C
                   scrollable: false
                   widgets:
                     - label:
@@ -235,19 +453,19 @@ lvgl:
                   id: lbl_target_temp
                   x: 150
                   y: 15
-                  width: 40
+                  width: 38
                   text_font: roboto_18
                   text: "--°"
                   text_color: 0x4FC3F7
                   text_align: center
               - button:
                   id: btn_temp_up
-                  x: 188
+                  x: 186
                   y: 6
                   width: 38
                   height: 38
                   radius: 19
-                  bg_color: 0x333333
+                  bg_color: 0x2C2C2C
                   scrollable: false
                   widgets:
                     - label:
@@ -258,16 +476,16 @@ lvgl:
                     - script.execute:
                         id: script_climate_adjust
                         delta: 1
-              # Mode buttons (active mode is highlighted from climate_state)
+              # Mode buttons (optimistically highlighted, reconciled with climate_state)
               - button:
                   id: btn_climate_off
                   x: 6
                   y: 56
                   width: 68
                   height: 44
-                  bg_color: 0x2A2A2A
+                  bg_color: 0x242424
                   checked:
-                    bg_color: 0x616161
+                    bg_color: 0x555555
                   scrollable: false
                   widgets:
                     - label:
@@ -275,17 +493,16 @@ lvgl:
                         text_font: mdi_20
                         text: "\U000F0425"
                   on_click:
-                    - homeassistant.action:
-                        action: climate.turn_off
-                        data:
-                          entity_id: ${climate_entity}
+                    - script.execute:
+                        id: script_climate_set_mode
+                        mode: "off"
               - button:
                   id: btn_climate_cool
-                  x: 81
+                  x: 80
                   y: 56
                   width: 68
                   height: 44
-                  bg_color: 0x2A2A2A
+                  bg_color: 0x242424
                   checked:
                     bg_color: 0x1E88E5
                   scrollable: false
@@ -295,18 +512,16 @@ lvgl:
                         text_font: mdi_20
                         text: "\U000F0F55"
                   on_click:
-                    - homeassistant.action:
-                        action: climate.set_hvac_mode
-                        data:
-                          entity_id: ${climate_entity}
-                          hvac_mode: cool
+                    - script.execute:
+                        id: script_climate_set_mode
+                        mode: "cool"
               - button:
                   id: btn_climate_heat
-                  x: 156
+                  x: 154
                   y: 56
                   width: 68
                   height: 44
-                  bg_color: 0x2A2A2A
+                  bg_color: 0x242424
                   checked:
                     bg_color: 0xE65100
                   scrollable: false
@@ -316,82 +531,141 @@ lvgl:
                         text_font: mdi_20
                         text: "\U000F0E4B"
                   on_click:
-                    - homeassistant.action:
-                        action: climate.set_hvac_mode
-                        data:
-                          entity_id: ${climate_entity}
-                          hvac_mode: heat
+                    - script.execute:
+                        id: script_climate_set_mode
+                        mode: "heat"
 
-        # ===== LIGHT (amber with dark text when on) =====
+        # ===== LIGHT + 1-TAP BRIGHTNESS TUNE =====
         - button:
             id: btn_light
             x: 5
             y: 148
-            width: 230
+            width: 180
             height: 52
-            bg_color: 0x2A2A2A
+            styles: style_surface_btn
+            pad_all: 0
             text_color: 0xFFFFFF
             checked:
-              bg_color: 0xFFC107
-              text_color: 0x000000
+              bg_color: 0x332600
+              border_width: 1
+              border_color: 0xFFC107
+              text_color: 0xFFFFFF
             scrollable: false
             widgets:
               - label:
-                  align: left_mid
-                  x: 6
+                  id: lbl_light_icon
+                  x: 10
+                  y: 12
                   text_font: mdi_20
-                  text: "\U000F0335"
+                  text: "\U000F0336"
+                  text_color: 0x9E9E9E
               - label:
-                  align: left_mid
                   x: 36
+                  y: 12
+                  width: 98
+                  long_mode: dot
                   text_font: roboto_18
                   text: "${light_name}"
               - label:
                   id: lbl_light_state
-                  align: right_mid
-                  x: -6
+                  x: 132
+                  y: 15
+                  width: 40
+                  text_align: right
                   text_font: roboto_14
                   text: "--"
-            # tap = toggle, hold = brightness
+                  text_color: 0xFFC107
+              - bar:
+                  id: bar_light_pct
+                  x: 10
+                  y: 43
+                  width: 160
+                  height: 4
+                  radius: 2
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  bg_color: 0x383838
+                  indicator:
+                    bg_color: 0xFFC107
+                    radius: 2
+            # tap = optimistic toggle, hold = brightness popup
             on_short_click:
-              - homeassistant.action:
-                  action: light.toggle
-                  data:
-                    entity_id: ${light_entity}
+              - script.execute: script_light_toggle_optimistic
             on_long_press:
               - script.execute: script_light_refresh
               - lvgl.widget.show: light_popup
+        - button:
+            id: btn_light_tune
+            x: 191
+            y: 148
+            width: 44
+            height: 52
+            styles: style_surface_btn
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F062E"
+                  text_color: 0xFFC107
+            on_click:
+              - script.execute: script_light_refresh
+              - lvgl.widget.show: light_popup
 
-        # ===== BLINDS (tap = detail popup) =====
+        # ===== BLINDS (tap = detail popup, hold = quick open/close) =====
         - button:
             id: btn_blinds_left
             x: 5
             y: 208
             width: 112
             height: 56
+            styles: style_surface_btn
+            pad_all: 0
             scrollable: false
             widgets:
               - label:
-                  x: 0
-                  y: 2
+                  x: 8
+                  y: 8
                   text_font: mdi_20
                   text: "\U000F0AE4"
                   text_color: 0x81D4FA
               - label:
-                  x: 26
-                  y: 3
-                  text_font: roboto_14
+                  x: 34
+                  y: 7
+                  width: 72
+                  long_mode: dot
+                  text_font: roboto_14_med
                   text: "${blinds_left_name}"
               - label:
                   id: lbl_blinds_left_pct
-                  x: 26
-                  y: 22
+                  x: 34
+                  y: 25
+                  width: 72
                   text_font: roboto_12
                   text: "--"
                   text_color: 0x81D4FA
-            on_click:
+              - bar:
+                  id: bar_blinds_left
+                  x: 8
+                  y: 46
+                  width: 96
+                  height: 4
+                  radius: 2
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  bg_color: 0x363636
+                  indicator:
+                    bg_color: 0x81D4FA
+                    radius: 2
+            on_short_click:
               - script.execute:
                   id: script_open_blinds
+                  side: 0
+            on_long_press:
+              - script.execute:
+                  id: script_quick_toggle_blinds
                   side: 0
         - button:
             id: btn_blinds_right
@@ -399,30 +673,54 @@ lvgl:
             y: 208
             width: 112
             height: 56
+            styles: style_surface_btn
+            pad_all: 0
             scrollable: false
             widgets:
               - label:
-                  x: 0
-                  y: 2
+                  x: 8
+                  y: 8
                   text_font: mdi_20
                   text: "\U000F0AE4"
                   text_color: 0x81D4FA
               - label:
-                  x: 26
-                  y: 3
-                  text_font: roboto_14
+                  x: 34
+                  y: 7
+                  width: 72
+                  long_mode: dot
+                  text_font: roboto_14_med
                   text: "${blinds_right_name}"
               - label:
                   id: lbl_blinds_right_pct
-                  x: 26
-                  y: 22
+                  x: 34
+                  y: 25
+                  width: 72
                   text_font: roboto_12
                   text: "--"
                   text_color: 0x81D4FA
-            on_click:
+              - bar:
+                  id: bar_blinds_right
+                  x: 8
+                  y: 46
+                  width: 96
+                  height: 4
+                  radius: 2
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  bg_color: 0x363636
+                  indicator:
+                    bg_color: 0x81D4FA
+                    radius: 2
+            on_short_click:
               - script.execute:
                   id: script_open_blinds
                   side: 1
+            on_long_press:
+              - script.execute:
+                  id: script_quick_toggle_blinds
+                  side: 1
+
         # Both blinds at once
         - button:
             id: btn_blinds_open_all
@@ -430,17 +728,19 @@ lvgl:
             y: 270
             width: 112
             height: 44
+            styles: style_surface_btn
             scrollable: false
             widgets:
               - label:
                   align: left_mid
-                  x: 4
+                  x: 2
                   text_font: mdi_20
                   text: "\U000F0143"
+                  text_color: 0x81D4FA
               - label:
                   align: left_mid
-                  x: 30
-                  text_font: roboto_14
+                  x: 26
+                  text_font: roboto_14_med
                   text: "Open all"
             on_click:
               - homeassistant.action:
@@ -453,17 +753,19 @@ lvgl:
             y: 270
             width: 112
             height: 44
+            styles: style_surface_btn
             scrollable: false
             widgets:
               - label:
                   align: left_mid
-                  x: 4
+                  x: 2
                   text_font: mdi_20
                   text: "\U000F0140"
+                  text_color: 0x81D4FA
               - label:
                   align: left_mid
-                  x: 30
-                  text_font: roboto_14
+                  x: 26
+                  text_font: roboto_14_med
                   text: "Close all"
             on_click:
               - homeassistant.action:
@@ -471,67 +773,61 @@ lvgl:
                   data:
                     entity_id: ${cover_entity_left}, ${cover_entity_right}
 
-        # ===== BLINDS POPUP (shared by both sides; tap outside to close) =====
+        # ===== BLINDS POPUP (shared by both sides; tap outside or Back to close) =====
         - obj:
             id: blinds_popup
             x: 0
             y: 0
             width: 240
             height: 320
-            bg_color: 0x000000
-            bg_opa: 85%
-            border_width: 0
-            radius: 0
-            pad_all: 0
+            styles: style_popup_backdrop
             hidden: true
             on_click:
               - lvgl.widget.hide: blinds_popup
             widgets:
               - obj:
                   align: center
-                  y: 12
+                  y: 10
                   width: 220
-                  height: 236
-                  bg_color: 0x222222
-                  radius: 15
-                  border_width: 0
-                  pad_all: 0
+                  height: 238
+                  styles: style_popup_sheet
                   scrollable: false
                   widgets:
                     - label:
                         id: lbl_popup_blinds_title
                         x: 16
-                        y: 16
+                        y: 14
+                        width: 154
+                        long_mode: dot
                         text_font: roboto_18
                         text: "Blinds"
                     - button:
-                        x: 172
+                        x: 174
                         y: 8
-                        width: 40
-                        height: 40
-                        radius: 20
-                        bg_color: 0x444444
+                        width: 36
+                        height: 36
+                        styles: style_close_btn
                         scrollable: false
                         widgets:
                           - label:
                               align: center
-                              text_font: roboto_18
-                              text: "X"
+                              text_font: mdi_20
+                              text: "\U000F0156"
                         on_click:
                           - lvgl.widget.hide: blinds_popup
                     - label:
                         id: lbl_popup_blinds_pct
                         align: top_mid
-                        y: 52
+                        y: 48
                         text_font: roboto_24
                         text: "--"
                         text_color: 0x81D4FA
                     - slider:
                         id: slider_blinds
                         x: 20
-                        y: 96
+                        y: 94
                         width: 180
-                        height: 22
+                        height: 26
                         min_value: 0
                         max_value: 100
                         indicator:
@@ -550,28 +846,30 @@ lvgl:
                                 position: !lambda 'return (int) x;'
                     - label:
                         x: 20
-                        y: 124
+                        y: 128
                         text_font: roboto_12
                         text: "Closed"
                         text_color: 0x888888
                     - label:
                         x: 168
-                        y: 124
+                        y: 128
                         text_font: roboto_12
                         text: "Open"
                         text_color: 0x888888
                     # Close / Stop / Open
                     - button:
                         x: 12
-                        y: 168
+                        y: 170
                         width: 60
                         height: 52
+                        styles: style_surface_btn
                         scrollable: false
                         widgets:
                           - label:
                               align: center
                               text_font: mdi_20
                               text: "\U000F0140"
+                              text_color: 0x81D4FA
                         on_click:
                           - homeassistant.action:
                               action: cover.close_cover
@@ -579,9 +877,10 @@ lvgl:
                                 entity_id: !lambda 'return id(blinds_sel) == 0 ? "${cover_entity_left}" : "${cover_entity_right}";'
                     - button:
                         x: 80
-                        y: 168
+                        y: 170
                         width: 60
                         height: 52
+                        styles: style_surface_btn
                         scrollable: false
                         widgets:
                           - label:
@@ -595,83 +894,77 @@ lvgl:
                                 entity_id: !lambda 'return id(blinds_sel) == 0 ? "${cover_entity_left}" : "${cover_entity_right}";'
                     - button:
                         x: 148
-                        y: 168
+                        y: 170
                         width: 60
                         height: 52
+                        styles: style_surface_btn
                         scrollable: false
                         widgets:
                           - label:
                               align: center
                               text_font: mdi_20
                               text: "\U000F0143"
+                              text_color: 0x81D4FA
                         on_click:
                           - homeassistant.action:
                               action: cover.open_cover
                               data:
                                 entity_id: !lambda 'return id(blinds_sel) == 0 ? "${cover_entity_left}" : "${cover_entity_right}";'
 
-        # ===== LIGHT BRIGHTNESS POPUP (long-press the light button) =====
+        # ===== LIGHT BRIGHTNESS POPUP (1-tap tune icon or hold light button) =====
         - obj:
             id: light_popup
             x: 0
             y: 0
             width: 240
             height: 320
-            bg_color: 0x000000
-            bg_opa: 85%
-            border_width: 0
-            radius: 0
-            pad_all: 0
+            styles: style_popup_backdrop
             hidden: true
             on_click:
               - lvgl.widget.hide: light_popup
             widgets:
               - obj:
                   align: center
-                  y: 12
+                  y: 10
                   width: 220
-                  height: 220
-                  bg_color: 0x222222
-                  radius: 15
-                  border_width: 0
-                  pad_all: 0
+                  height: 222
+                  styles: style_popup_sheet
                   scrollable: false
                   widgets:
                     - label:
                         x: 16
-                        y: 16
-                        width: 150
+                        y: 14
+                        width: 152
                         long_mode: dot
                         text_font: roboto_18
                         text: "${light_name}"
                     - button:
-                        x: 172
+                        x: 174
                         y: 8
-                        width: 40
-                        height: 40
-                        radius: 20
-                        bg_color: 0x444444
+                        width: 36
+                        height: 36
+                        styles: style_close_btn
                         scrollable: false
                         widgets:
                           - label:
                               align: center
-                              text_font: roboto_18
-                              text: "X"
+                              text_font: mdi_20
+                              text: "\U000F0156"
                         on_click:
                           - lvgl.widget.hide: light_popup
                     - label:
                         id: lbl_popup_light_pct
                         align: top_mid
-                        y: 52
+                        y: 48
                         text_font: roboto_24
                         text: "--"
                         text_color: 0xFFC107
                     - slider:
                         id: slider_light
                         x: 20
-                        y: 98
+                        y: 96
                         width: 180
-                        height: 22
+                        height: 26
                         min_value: 1
                         max_value: 100
                         indicator:
@@ -689,14 +982,15 @@ lvgl:
                     # Presets
                     - button:
                         x: 12
-                        y: 148
+                        y: 150
                         width: 44
                         height: 52
+                        styles: style_surface_btn
                         scrollable: false
                         widgets:
                           - label:
                               align: center
-                              text_font: roboto_14
+                              text_font: roboto_14_med
                               text: "Off"
                         on_click:
                           - script.execute:
@@ -704,14 +998,15 @@ lvgl:
                               pct: 0
                     - button:
                         x: 61
-                        y: 148
+                        y: 150
                         width: 44
                         height: 52
+                        styles: style_surface_btn
                         scrollable: false
                         widgets:
                           - label:
                               align: center
-                              text_font: roboto_14
+                              text_font: roboto_14_med
                               text: "25%"
                         on_click:
                           - script.execute:
@@ -719,14 +1014,15 @@ lvgl:
                               pct: 25
                     - button:
                         x: 110
-                        y: 148
+                        y: 150
                         width: 44
                         height: 52
+                        styles: style_surface_btn
                         scrollable: false
                         widgets:
                           - label:
                               align: center
-                              text_font: roboto_14
+                              text_font: roboto_14_med
                               text: "50%"
                         on_click:
                           - script.execute:
@@ -734,14 +1030,15 @@ lvgl:
                               pct: 50
                     - button:
                         x: 159
-                        y: 148
+                        y: 150
                         width: 49
                         height: 52
+                        styles: style_surface_btn
                         scrollable: false
                         widgets:
                           - label:
                               align: center
-                              text_font: roboto_14
+                              text_font: roboto_14_med
                               text: "100%"
                         on_click:
                           - script.execute:

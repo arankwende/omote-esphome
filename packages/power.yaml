@@ -60,39 +60,17 @@ sensor:
               - lvgl.label.update:
                   id: lbl_toast
                   text: !lambda 'return str_sprintf("Battery low: %d%% - please charge", (int) x);'
-              - lvgl.widget.update:
-                  id: toast
-                  bg_color: 0xB71C1C
-                  hidden: false
+              - lambda: |-
+                  lv_obj_set_style_bg_color(id(toast), lv_color_hex(0xB71C1C), LV_PART_MAIN);
+                  lv_obj_set_style_border_color(id(toast), lv_color_hex(0xEF5350), LV_PART_MAIN);
+                  lv_obj_remove_flag(id(toast), LV_OBJ_FLAG_HIDDEN);
               - globals.set:
                   id: batt_warn_now
                   value: '0'
               - delay: 4s
               - lvgl.widget.hide: toast
+        - script.execute: script_update_battery_bar
         - script.execute: script_settings_info
-        - lambda: |-
-            float level = x;
-            bool charging = id(battery_charging).state;
-            std::string icon;
-            uint32_t color_hex;
-
-            if (std::isnan(level)) {
-              icon = "\U000F008E"; // battery-outline (unknown)
-              color_hex = 0x666666;
-            } else if (charging) {
-              if (level >= 75) { icon = "\U000F0084"; color_hex = 0x2ECC71; }       // charging full
-              else if (level >= 25) { icon = "\U000F089D"; color_hex = 0xF1C40F; }   // charging mid
-              else if (level >= 5) { icon = "\U000F0086"; color_hex = 0xF39C12; }    // charging low
-              else { icon = "\U000F10CD"; color_hex = 0xE74C3C; }                     // charging critical
-            } else {
-              if (level >= 75) { icon = "\U000F0079"; color_hex = 0x2ECC71; }        // full
-              else if (level >= 25) { icon = "\U000F007E"; color_hex = 0xF1C40F; }   // mid
-              else if (level >= 5) { icon = "\U000F007B"; color_hex = 0xF39C12; }    // low
-              else { icon = "\U000F0083"; color_hex = 0xE74C3C; }                     // critical
-            }
-
-            lv_label_set_text(id(lbl_battery), icon.c_str());
-            lv_obj_set_style_text_color(id(lbl_battery), lv_color_hex(color_hex), LV_PART_MAIN);
     update_interval: 60s
   # Days left at the recent discharge rate (#4). Unknown until ~2% has been
   # used over at least 3h since the last charge.
@@ -119,12 +97,11 @@ text_sensor:
             - globals.set:
                 id: is_nighttime
                 value: 'true'
-#            - light.turn_off: back_light
           else:
             - globals.set:
                 id: is_nighttime
                 value: 'false'
-#            - light.turn_on: back_light
+      - script.execute: script_settings_sync
 
 binary_sensor:
   # Charger status (MCP73831 STAT, GPIO01): LOW while charging
@@ -139,6 +116,9 @@ binary_sensor:
         pullup: true
     filters:
       - delayed_off: 1s
+    on_state:
+      - script.execute: script_update_battery_bar
+      - script.execute: script_settings_info
 
 globals:
   # Device sleep state tracking
@@ -150,7 +130,6 @@ globals:
     type: bool
     restore_value: true  # remembered across deep sleep (only written at sunrise/sunset)
     initial_value: "false"
-  # Last activity timestamp for backlight timeout
   # Charging + playing: screen stays on showing the cover
   - id: dock_active
     type: bool
@@ -181,6 +160,38 @@ globals:
     initial_value: "0"
 
 script:
+  # Update status-bar battery percentage + icon immediately on level or charger changes
+  - id: script_update_battery_bar
+    then:
+      - lambda: |-
+          const float level = id(battery_level).state;
+          const bool charging = id(battery_charging).state;
+          std::string icon;
+          std::string pct_txt;
+          uint32_t color_hex;
+
+          if (std::isnan(level)) {
+            icon = "\U000F008E"; // battery-outline (unknown)
+            color_hex = 0x666666;
+          } else {
+            pct_txt = str_sprintf("%d%%", clamp((int) lroundf(level), 0, 100));
+            if (charging) {
+              if (level >= 75) { icon = "\U000F0084"; color_hex = 0x2ECC71; }       // charging full
+              else if (level >= 25) { icon = "\U000F089D"; color_hex = 0xF1C40F; }   // charging mid
+              else if (level >= 5) { icon = "\U000F0086"; color_hex = 0xF39C12; }    // charging low
+              else { icon = "\U000F10CD"; color_hex = 0xE74C3C; }                     // charging critical
+            } else {
+              if (level >= 75) { icon = "\U000F0079"; color_hex = 0x2ECC71; }        // full
+              else if (level >= 25) { icon = "\U000F007E"; color_hex = 0xF1C40F; }   // mid
+              else if (level >= 5) { icon = "\U000F007B"; color_hex = 0xF39C12; }    // low
+              else { icon = "\U000F0083"; color_hex = 0xE74C3C; }                     // critical
+            }
+          }
+
+          lv_label_set_text(id(lbl_battery), icon.c_str());
+          lv_obj_set_style_text_color(id(lbl_battery), lv_color_hex(color_hex), LV_PART_MAIN);
+          lv_label_set_text(id(lbl_battery_pct), pct_txt.c_str());
+
   # Replay the key that woke the remote once Home Assistant is connected (#2).
   # The power key is dropped so waking doesn't immediately sleep again.
   - id: script_replay_wake_key
@@ -193,6 +204,15 @@ script:
           condition:
             lambda: 'return id(keypad).get_wake_key() != 0;'
           then:
+            - if:
+                condition:
+                  lambda: 'return !api::global_api_server->is_connected();'
+                then:
+                  - lambda: |-
+                      lv_label_set_text(id(lbl_toast), "Connecting… key queued");
+                      lv_obj_set_style_bg_color(id(toast), lv_color_hex(0x3E2723), LV_PART_MAIN);
+                      lv_obj_set_style_border_color(id(toast), lv_color_hex(0xF5A623), LV_PART_MAIN);
+                      lv_obj_remove_flag(id(toast), LV_OBJ_FLAG_HIDDEN);
             - wait_until:
                 condition:
                   api.connected:
@@ -200,12 +220,35 @@ script:
             - delay: 300ms
             - lambda: 'id(keypad).replay_wake_key();'
 
+  # Wake backlight & LVGL on touch-down while keeping wake_touch_shield active
+  # until finger release so the wake tap doesn't click an underlying button
+  - id: script_wake_screen_keep_shield
+    then:
+      - globals.set:
+          id: last_activity_time
+          value: !lambda 'return millis();'
+      - globals.set:
+          id: screen_state
+          value: '0'
+      - if:
+          condition: lvgl.is_paused
+          then:
+            - lvgl.resume:
+            - lvgl.widget.redraw:
+      - light.turn_on:
+          id: back_light
+          brightness: !lambda 'return id(is_nighttime) ? ${screen_night_brightness} : id(cfg_brightness).state / 100.0f;'
+          transition_length: 0s
+
   # Reset backlight timeout - call this on any user activity
   - id: script_reset_backlight_timeout
     then:
       - globals.set:
           id: last_activity_time
           value: !lambda 'return millis();'
+      - lambda: |-
+          if (!lv_obj_has_flag(id(wake_touch_shield), LV_OBJ_FLAG_HIDDEN))
+            lv_obj_add_flag(id(wake_touch_shield), LV_OBJ_FLAG_HIDDEN);
       - if:
           condition:
             lambda: 'return id(screen_state) != 0;'
@@ -223,8 +266,6 @@ script:
                 brightness: !lambda 'return id(is_nighttime) ? ${screen_night_brightness} : id(cfg_brightness).state / 100.0f;'
                 transition_length: 0s
 
-  # Deep sleep script. Mirrors the original OMOTE Rev5 enterSleep():
-  # peripherals off, pins parked and held, then ext1 wake on keypad/motion.
   # Light the keypad for a while; restart mode extends it on every new motion
   - id: script_keypad_backlight_pulse
     mode: restart
@@ -235,6 +276,8 @@ script:
       - delay: ${keypad_backlight_ms}ms
       - light.turn_off: keypad_backlight
 
+  # Deep sleep script. Mirrors the original OMOTE Rev5 enterSleep():
+  # peripherals off, pins parked and held, then ext1 wake on keypad/motion.
   - id: script_enter_deep_sleep
     mode: single
     parameters:
@@ -317,7 +360,6 @@ script:
           gpio_deep_sleep_hold_en();
       - deep_sleep.enter: deep_sleep_ctrl
 
-
   # Wake device script
   - id: script_wake_device
     then:
@@ -325,6 +367,7 @@ script:
       - globals.set:
           id: device_sleeping
           value: 'false'
+      - lambda: 'lv_obj_add_flag(id(wake_touch_shield), LV_OBJ_FLAG_HIDDEN);'
       - light.turn_on: back_light
       - lvgl.resume:
       - lvgl.widget.redraw:
@@ -338,6 +381,10 @@ switch:
     optimistic: true
     restore_mode: ALWAYS_OFF
     entity_category: config
+    on_turn_on:
+      - script.execute: script_settings_sync
+    on_turn_off:
+      - script.execute: script_settings_sync
 
 # Dim -> screen off -> deep sleep after inactivity
 interval:
@@ -379,23 +426,17 @@ interval:
                             then:
                               - if:
                                   condition:
-                                    lambda: 'return id(current_page) != 1;'
+                                    lambda: 'return id(current_page) != ${music_page_index};'
                                   then:
                                     - lvgl.page.show: music_page
-                              - script.execute: script_music_art_update
-                              - script.execute:
-                                  id: script_music_art_controls
-                                  show: false
+                              - script.execute: script_music_art_show_now
                             else:
                               - if:
                                   condition:
-                                    lambda: 'return id(current_page) != 2;'
+                                    lambda: 'return id(current_page) != ${tv_page_index};'
                                   then:
                                     - lvgl.page.show: tv_page
-                              - script.execute: script_tv_art_update
-                              - script.execute:
-                                  id: script_tv_art_controls
-                                  show: false
+                              - script.execute: script_tv_art_show_now
                 else:
                   # leaving dock mode (unplugged / music stopped): restart the
                   # idle timer instead of sleeping on the spot
@@ -434,6 +475,7 @@ interval:
                               - globals.set:
                                   id: screen_state
                                   value: '2'
+                              - lambda: 'lv_obj_remove_flag(id(wake_touch_shield), LV_OBJ_FLAG_HIDDEN);'
                               - light.turn_off:
                                   id: back_light
                                   transition_length: 500ms
@@ -449,6 +491,7 @@ interval:
                                     - globals.set:
                                         id: screen_state
                                         value: '1'
+                                    - lambda: 'lv_obj_remove_flag(id(wake_touch_shield), LV_OBJ_FLAG_HIDDEN);'
                                     - light.turn_on:
                                         id: back_light
                                         brightness: ${screen_dim_brightness}

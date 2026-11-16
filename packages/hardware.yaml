@@ -141,6 +141,16 @@ touchscreen:
     transform:
       mirror_x: true
       mirror_y: true
+    on_touch:
+      then:
+        - if:
+            condition:
+              or:
+                - lvgl.is_paused
+                - lambda: 'return id(screen_state) != 0;'
+            then:
+              - lambda: 'lv_obj_remove_flag(id(wake_touch_shield), LV_OBJ_FLAG_HIDDEN);'
+              - script.execute: script_wake_screen_keep_shield
     on_release:
       then:
         - if:

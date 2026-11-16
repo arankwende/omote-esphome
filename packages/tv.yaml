@@ -1,10 +1,10 @@
 # OMOTE - tv.yaml
-# TV page: IR remote, TV media player, app launcher.
+# TV page: IR remote, TV media player, source picker, symmetric 3x2 app launcher.
 # Included from omote.yaml; all ${...} values are set there.
 
 image:
   # Poster / still of what the TV plays (see tv_now_playing). Posters (2:3)
-  # fill the screen; landscape stills are letterboxed.
+  # fill the screen; landscape stills are framed cleanly.
   - platform: online_image
     id: tv_art
     url: "https://via.placeholder.com/100"
@@ -29,6 +29,9 @@ globals:
   - id: tv_art_loaded
     type: bool
     initial_value: "false"
+  - id: tv_art_suppress_until
+    type: uint32_t
+    initial_value: "0"
   # URL of the current TV art minus HA's rotating access token
   - id: tv_art_key
     type: std::string
@@ -37,6 +40,8 @@ globals:
   - id: tv_playing
     type: bool
     initial_value: "false"
+  - id: tv_sources
+    type: std::vector<std::string>
 
 text_sensor:
   # Now playing (the TV itself, or a helper entity: see tv_now_playing)
@@ -123,31 +128,110 @@ text_sensor:
     attribute: source
     on_value:
       - script.execute: script_tv_update_display
+  # Dynamic source_list from Home Assistant for the TV input/source roller
+  - platform: homeassistant
+    id: tv_source_list
+    entity_id: ${tv_media_player}
+    attribute: source_list
+    on_value:
+      - lambda: |-
+          id(tv_sources).clear();
+          // Parse HA list representation e.g. ['HDMI 1', 'HDMI 2', 'Netflix']
+          size_t i = 0;
+          while (i < x.size()) {
+            while (i < x.size() && (x[i] == '[' || x[i] == ']' || x[i] == ',' || x[i] == ' ')) i++;
+            if (i >= x.size()) break;
+            char q = (x[i] == '\'' || x[i] == '"') ? x[i++] : 0;
+            std::string item;
+            while (i < x.size()) {
+              if (q && x[i] == q) { i++; break; }
+              if (!q && (x[i] == ',' || x[i] == ']')) break;
+              if (x[i] != '\n') item += x[i];
+              i++;
+            }
+            if (!item.empty()) id(tv_sources).push_back(item);
+          }
 
 script:
-  # Full-screen art while the TV plays or is paused and art is loaded; tap
-  # for the controls (same behaviour as the music page)
+  # Check whether full-screen poster should show now or wait for idle timeout
   - id: script_tv_art_update
     then:
       - lambda: |-
           const std::string &st = id(tv_np_state).state;
           const bool active = st == "playing" || st == "paused";
           id(tv_playing) = st == "playing" && id(tv_art_loaded);
-          const bool show = active && id(tv_art_loaded);
+          const bool idle_ready = id(dock_active) ||
+                                  ((int32_t) (millis() - id(tv_art_suppress_until)) >= 0 &&
+                                   millis() - id(last_activity_time) >= ${art_controls_timeout_ms});
+          const bool show = active && id(tv_art_loaded) && idle_ready;
           const bool shown = !lv_obj_has_flag(id(tv_art_view), LV_OBJ_FLAG_HIDDEN);
-          if (show == shown) return;
-          if (show) {
-            // Bottom of the page: every TV widget stacks on top of the art
-            // and becomes its tap-to-show overlay
+          if (show != shown) {
+            if (show) {
+              lv_obj_move_to_index(id(tv_art_view), 0);
+              lv_obj_remove_flag(id(tv_art_view), LV_OBJ_FLAG_HIDDEN);
+            } else {
+              lv_obj_add_flag(id(tv_art_view), LV_OBJ_FLAG_HIDDEN);
+            }
+          }
+      - if:
+          condition:
+            lambda: 'return !lv_obj_has_flag(id(tv_art_view), LV_OBJ_FLAG_HIDDEN);'
+          then:
+            - script.execute:
+                id: script_tv_art_controls
+                show: false
+          else:
+            - script.execute: script_tv_idle_to_art
+      - script.execute: script_tv_art_sync
+
+  # Immediately show full-screen poster (used by charger dock mode)
+  - id: script_tv_art_show_now
+    then:
+      - globals.set:
+          id: tv_art_suppress_until
+          value: "0"
+      - lambda: |-
+          if (id(tv_art_loaded)) {
             lv_obj_move_to_index(id(tv_art_view), 0);
             lv_obj_remove_flag(id(tv_art_view), LV_OBJ_FLAG_HIDDEN);
-          } else {
-            lv_obj_add_flag(id(tv_art_view), LV_OBJ_FLAG_HIDDEN);
           }
       - script.execute:
           id: script_tv_art_controls
           show: false
       - script.execute: script_tv_art_sync
+
+  # Transition from TV controls to full-screen poster after idle timeout
+  - id: script_tv_idle_to_art
+    mode: restart
+    then:
+      - delay: 500ms
+      - wait_until:
+          condition:
+            lambda: |-
+              return id(current_page) != ${tv_page_index} ||
+                     (millis() - id(last_activity_time) >= ${art_controls_timeout_ms} &&
+                      (int32_t) (millis() - id(tv_art_suppress_until)) >= 0);
+      - if:
+          condition:
+            lambda: |-
+              const std::string &st = id(tv_np_state).state;
+              return id(current_page) == ${tv_page_index} &&
+                     (st == "playing" || st == "paused") && id(tv_art_loaded) &&
+                     lv_obj_has_flag(id(tv_source_popup), LV_OBJ_FLAG_HIDDEN);
+          then:
+            - script.execute: script_tv_art_show_now
+
+  # Exit full-screen poster back to normal TV remote layout for 30s
+  - id: script_tv_art_details
+    then:
+      - globals.set:
+          id: tv_art_suppress_until
+          value: !lambda 'return millis() + 30000;'
+      - lvgl.widget.hide: tv_art_view
+      - script.execute:
+          id: script_tv_art_controls
+          show: false
+      - script.execute: script_tv_idle_to_art
 
   # Show / hide the TV controls over the art (USER_1 marks what was hidden here)
   - id: script_tv_art_controls
@@ -207,6 +291,47 @@ script:
           id: script_tv_art_controls
           show: false
 
+  # Open TV Input / Source picker popup (populated from HA source_list or defaults)
+  - id: script_tv_open_sources
+    then:
+      - lambda: |-
+          if (id(tv_sources).empty()) {
+            const char *defaults[] = {"HDMI 1", "HDMI 2", "HDMI 3", "Live TV",
+                                      "${app_1_source}", "${app_2_source}", "${app_3_source}",
+                                      "${app_4_source}", "${app_5_source}", "${app_6_source}"};
+            for (auto *d : defaults) {
+              if (d[0] != '\0') id(tv_sources).push_back(d);
+            }
+          }
+          std::string opts;
+          int sel = 0;
+          const std::string &cur = id(tv_source).state;
+          for (size_t i = 0; i < id(tv_sources).size(); i++) {
+            if (i > 0) opts += "\n";
+            opts += id(tv_sources)[i];
+            if (!cur.empty() && id(tv_sources)[i] == cur) sel = (int) i;
+          }
+          lv_roller_set_options(id(tv_source_roller)->obj, opts.c_str(), LV_ROLLER_MODE_NORMAL);
+          lv_roller_set_selected(id(tv_source_roller)->obj, sel, LV_ANIM_OFF);
+      - lvgl.widget.show: tv_source_popup
+
+  - id: script_tv_select_roller_source
+    then:
+      - lvgl.widget.hide: tv_source_popup
+      - if:
+          condition:
+            lambda: 'return lv_roller_get_selected(id(tv_source_roller)->obj) < id(tv_sources).size();'
+          then:
+            - script.execute:
+                id: script_toast
+                text: !lambda 'return "Input: " + id(tv_sources)[lv_roller_get_selected(id(tv_source_roller)->obj)];'
+                needs: 2
+            - homeassistant.action:
+                action: media_player.select_source
+                data:
+                  entity_id: ${tv_media_player}
+                  source: !lambda 'return id(tv_sources)[lv_roller_get_selected(id(tv_source_roller)->obj)];'
+
   # Compute and display What's Playing on the TV card (falling back to Android TV app_name/app_id/source or TV HT)
   - id: script_tv_update_display
     mode: restart
@@ -240,10 +365,10 @@ script:
             active_app = map_pkg(pkg);
           }
 
-          // Highlight matching app launcher tile
+          // Highlight matching app launcher tile (3x2 grid)
           const std::pair<lv_obj_t *, const char *> apps[] = {
               {id(btn_app_1), "${app_1_source}"}, {id(btn_app_2), "${app_2_source}"}, {id(btn_app_3), "${app_3_source}"},
-              {id(btn_app_4), "${app_4_source}"}, {id(btn_app_5), "${app_5_source}"}};
+              {id(btn_app_4), "${app_4_source}"}, {id(btn_app_5), "${app_5_source}"}, {id(btn_app_6), "${app_6_source}"}};
           for (auto &a : apps) {
             bool match = (!src.empty() && src == a.second) ||
                          (!active_app.empty() && active_app == a.second);
@@ -311,56 +436,43 @@ script:
       - logger.log: "TV: Up"
       - remote_transmitter.${remote_type}:
           data: ${tv_ir_cmd_up}
-#          address: ${tv_ir_address}
-#          command: ${tv_ir_cmd_up}
 
   - id: script_tv_down
     then:
       - logger.log: "TV: Down"
       - remote_transmitter.${remote_type}:
-          data : ${tv_ir_cmd_down}
-#          address: ${tv_ir_address}
-#          command: ${tv_ir_cmd_down}
+          data: ${tv_ir_cmd_down}
 
   - id: script_tv_left
     then:
       - logger.log: "TV: Left"
       - remote_transmitter.${remote_type}:
-          data : ${tv_ir_cmd_left}
-#          address: ${tv_ir_address}
-#          command: ${tv_ir_cmd_left}
+          data: ${tv_ir_cmd_left}
+
   - id: script_tv_right
     then:
       - logger.log: "TV: Right"
       - remote_transmitter.${remote_type}:
-          data : ${tv_ir_cmd_right}
-#          address: ${tv_ir_address}
-#          command: ${tv_ir_cmd_right}
+          data: ${tv_ir_cmd_right}
 
   - id: script_tv_select
     then:
       - logger.log: "TV: Select"
       - remote_transmitter.${remote_type}:
-          data : ${tv_ir_cmd_select}
-#          address: ${tv_ir_address}
-#          command: ${tv_ir_cmd_select}
+          data: ${tv_ir_cmd_select}
 
   # TV control scripts - Channel
   - id: script_tv_channel_up
     then:
       - logger.log: "TV: Channel Up"
       - remote_transmitter.${remote_type}:
-          data : ${tv_ir_cmd_channel_up}
-#          address: ${tv_ir_address}
-#          command: ${tv_ir_cmd_channel_up}
+          data: ${tv_ir_cmd_channel_up}
 
   - id: script_tv_channel_down
     then:
       - logger.log: "TV: Channel Down"
       - remote_transmitter.${remote_type}:
-          data : ${tv_ir_cmd_channel_down}
-#          address: ${tv_ir_address}
-#          command: ${tv_ir_cmd_channel_down}
+          data: ${tv_ir_cmd_channel_down}
 
   # TV control scripts - Volume
   - id: script_tv_volume_up
@@ -368,47 +480,54 @@ script:
       - logger.log: "TV: Volume Up"
       - remote_transmitter.${remote_type}:
           data: ${tv_ir_cmd_volume_up}
-#          address: ${tv_ir_address}
-#          command: ${tv_ir_cmd_volume_up}
+
   - id: script_tv_volume_down
     then:
       - logger.log: "TV: Volume Down"
       - remote_transmitter.${remote_type}:
-          data : ${tv_ir_cmd_volume_down}
-#          address: ${tv_ir_address}
-#          command: ${tv_ir_cmd_volume_down}
+          data: ${tv_ir_cmd_volume_down}
 
   - id: script_tv_mute
     then:
       - logger.log: "TV: Mute"
       - remote_transmitter.${remote_type}:
-          data : ${tv_ir_cmd_mute}
-#          address: ${tv_ir_address}
-#          command: ${tv_ir_cmd_mute}
+          data: ${tv_ir_cmd_mute}
 
   - id: script_tv_rewind
     then:
       - logger.log: "TV: Rewind"
       - remote_transmitter.${remote_type}:
           data: ${tv_ir_cmd_rewind}
-#          address: ${tv_ir_address}
-#          command: ${tv_ir_cmd_rewind}
 
   - id: script_tv_fastforward
     then:
       - logger.log: "TV: Fast Forward"
       - remote_transmitter.${remote_type}:
           data: ${tv_ir_cmd_fastforward}
-#          address: ${tv_ir_address}
-#          command: ${tv_ir_cmd_fastforward}
+
+  - id: script_tv_back
+    then:
+      - logger.log: "TV: Back"
+      - remote_transmitter.${remote_type}:
+          data: ${tv_ir_cmd_back}
+
+  - id: script_tv_home
+    then:
+      - logger.log: "TV: Home"
+      - remote_transmitter.${remote_type}:
+          data: ${tv_ir_cmd_home}
+
+  - id: script_tv_menu
+    then:
+      - logger.log: "TV: Menu"
+      - remote_transmitter.${remote_type}:
+          data: ${tv_ir_cmd_menu}
 
   - id: script_tv_exit
     then:
       - logger.log: "TV: Exit"
       - remote_transmitter.${remote_type}:
           data: ${tv_ir_cmd_exit}
-#          address: ${tv_ir_address}
-#          command: ${tv_ir_cmd_exit}
 
   - id: script_tv_power_toggle
     then:
@@ -420,6 +539,9 @@ script:
   - id: script_tv_media_play_pause
     then:
       - logger.log: "TV Media: Play/Pause"
+      - lambda: |-
+          const bool was_playing = strcmp(lv_label_get_text(id(lbl_tv_play_pause)), "\U000F03E4") == 0;
+          lv_label_set_text(id(lbl_tv_play_pause), was_playing ? "\U000F040A" : "\U000F03E4");
       - homeassistant.action:
           action: media_player.media_play_pause
           data:
@@ -443,7 +565,10 @@ script:
 
   - id: script_launch_app_1
     then:
-      - logger.log: "Launching ${app_1_source}"
+      - script.execute:
+          id: script_toast
+          text: "Opening ${app_1_source}"
+          needs: 2
       - homeassistant.action:
           action: media_player.select_source
           data:
@@ -452,7 +577,10 @@ script:
 
   - id: script_launch_app_2
     then:
-      - logger.log: "Launching ${app_2_source}"
+      - script.execute:
+          id: script_toast
+          text: "Opening ${app_2_source}"
+          needs: 2
       - homeassistant.action:
           action: media_player.select_source
           data:
@@ -461,7 +589,10 @@ script:
 
   - id: script_launch_app_3
     then:
-      - logger.log: "Launching ${app_3_source}"
+      - script.execute:
+          id: script_toast
+          text: "Opening ${app_3_source}"
+          needs: 2
       - homeassistant.action:
           action: media_player.select_source
           data:
@@ -470,7 +601,10 @@ script:
 
   - id: script_launch_app_4
     then:
-      - logger.log: "Launching ${app_4_source}"
+      - script.execute:
+          id: script_toast
+          text: "Opening ${app_4_source}"
+          needs: 2
       - homeassistant.action:
           action: media_player.select_source
           data:
@@ -479,12 +613,27 @@ script:
 
   - id: script_launch_app_5
     then:
-      - logger.log: "Launching ${app_5_source}"
+      - script.execute:
+          id: script_toast
+          text: "Opening ${app_5_source}"
+          needs: 2
       - homeassistant.action:
           action: media_player.select_source
           data:
             entity_id: ${tv_media_player}
             source: "${app_5_source}"
+
+  - id: script_launch_app_6
+    then:
+      - script.execute:
+          id: script_toast
+          text: "Opening ${app_6_source}"
+          needs: 2
+      - homeassistant.action:
+          action: media_player.select_source
+          data:
+            entity_id: ${tv_media_player}
+            source: "${app_6_source}"
 
 lvgl:
   pages:
@@ -494,16 +643,27 @@ lvgl:
       on_load:
         - script.execute:
             id: script_page_loaded
-            page: 2
-        - script.execute: script_tv_art_update
+            page: ${tv_page_index}
+        - if:
+            condition:
+              lambda: 'return id(dock_active);'
+            then:
+              - script.execute: script_tv_art_show_now
+            else:
+              - lvgl.widget.hide: tv_art_view
+              - script.execute:
+                  id: script_tv_art_controls
+                  show: false
+              - script.execute: script_tv_idle_to_art
+      on_unload:
+        - script.stop: script_tv_idle_to_art
+        - lvgl.widget.hide: tv_source_popup
       on_swipe_left:
         - script.execute: script_next_page
       on_swipe_right:
         - script.execute: script_prev_page
       widgets:
-        # ===== FULL-SCREEN ART (playing / paused; tap for controls) =====
-        # Moved to the bottom of the page when shown, so all TV widgets sit
-        # on top of it (see script_tv_art_update)
+        # ===== FULL-SCREEN ART (after idle or on dock; tap for controls) =====
         - obj:
             id: tv_art_view
             x: 0
@@ -532,7 +692,7 @@ lvgl:
                   width: 240
                   height: 28
                   bg_color: 0x000000
-                  bg_opa: 45%
+                  bg_opa: 50%
                   border_width: 0
                   radius: 0
                   clickable: false
@@ -543,11 +703,29 @@ lvgl:
                   width: 240
                   height: 292
                   bg_color: 0x000000
-                  bg_opa: 70%
+                  bg_opa: 78%
                   border_width: 0
                   radius: 0
+                  pad_all: 0
+                  scrollable: false
                   clickable: false
                   hidden: true
+                  widgets:
+                    # Escape button back to standard TV remote layout
+                    - button:
+                        x: 196
+                        y: 62
+                        width: 36
+                        height: 36
+                        styles: style_close_btn
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: mdi_20
+                              text: "\U000F0279"
+                        on_click:
+                          - script.execute: script_tv_art_details
               - obj:
                   id: tv_art_info
                   x: 0
@@ -555,7 +733,7 @@ lvgl:
                   width: 240
                   height: 56
                   bg_color: 0x000000
-                  bg_opa: 60%
+                  bg_opa: 70%
                   border_width: 0
                   radius: 0
                   pad_all: 0
@@ -588,26 +766,23 @@ lvgl:
             y: 32
             width: 178
             height: 54
-            bg_color: 0x1A1A1A
-            radius: 12
-            border_width: 0
-            pad_all: 0
+            styles: style_card
             scrollable: false
             widgets:
               - label:
                   id: lbl_tv_title
                   x: 10
-                  y: 8
-                  width: 160
-                  text_font: roboto_14
+                  y: 7
+                  width: 158
+                  text_font: roboto_14_med
                   text: "Nothing playing"
                   text_color: 0xFFFFFF
                   long_mode: scroll_circular
               - label:
                   id: lbl_tv_artist
                   x: 10
-                  y: 30
-                  width: 160
+                  y: 29
+                  width: 158
                   text_font: roboto_12
                   text: ""
                   text_color: 0x888888
@@ -618,7 +793,7 @@ lvgl:
             y: 32
             width: 46
             height: 54
-            bg_color: 0x2A2A2A
+            styles: style_surface_btn
             scrollable: false
             widgets:
               # red = TV off / standby, green = on (from the TV media player state)
@@ -631,62 +806,93 @@ lvgl:
             on_click:
               - script.execute: script_tv_power_toggle
 
-        # ===== TRANSPORT (play icon follows the TV state) =====
+        # ===== NAVIGATION & TRANSPORT BAR (Back, Prev, Play/Pause, Next, Home) =====
         - button:
-            id: btn_tv_prev
-            x: 22
-            y: 98
-            width: 58
-            height: 52
-            radius: 26
+            id: btn_tv_back
+            x: 5
+            y: 94
+            width: 42
+            height: 48
+            styles: style_surface_btn
             scrollable: false
             widgets:
               - label:
                   align: center
-                  text_font: mdi_36
+                  text_font: mdi_20
+                  text: "\U000F004D"
+            on_click:
+              - script.execute: script_tv_back
+        - button:
+            id: btn_tv_prev
+            x: 51
+            y: 94
+            width: 42
+            height: 48
+            styles: style_surface_btn
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
                   text: "\U000F04AE"
             on_click:
               - script.execute: script_tv_media_prev
         - button:
             id: btn_tv_play_pause_btn
-            x: 88
-            y: 94
-            width: 64
-            height: 60
-            radius: 30
+            x: 97
+            y: 92
+            width: 46
+            height: 52
+            radius: 26
             bg_color: 0xFF5722
             scrollable: false
             widgets:
               - label:
                   id: lbl_tv_play_pause
                   align: center
-                  text_font: mdi_36
+                  text_font: mdi_20
                   text: "\U000F040A"
             on_click:
               - script.execute: script_tv_media_play_pause
         - button:
             id: btn_tv_next
-            x: 160
-            y: 98
-            width: 58
-            height: 52
-            radius: 26
+            x: 147
+            y: 94
+            width: 42
+            height: 48
+            styles: style_surface_btn
             scrollable: false
             widgets:
               - label:
                   align: center
-                  text_font: mdi_36
+                  text_font: mdi_20
                   text: "\U000F04AD"
             on_click:
               - script.execute: script_tv_media_next
+        - button:
+            id: btn_tv_home
+            x: 193
+            y: 94
+            width: 42
+            height: 48
+            styles: style_surface_btn
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F02DC"
+            on_click:
+              - script.execute: script_tv_home
 
-        # ===== VOLUME (IR) =====
+        # ===== AUDIO & INPUT / HDMI STRIP =====
         - button:
             id: btn_tv_vol_down
             x: 5
-            y: 162
-            width: 72
-            height: 44
+            y: 148
+            width: 54
+            height: 42
+            styles: style_surface_btn
             scrollable: false
             widgets:
               - label:
@@ -697,10 +903,11 @@ lvgl:
               - script.execute: script_tv_volume_down
         - button:
             id: btn_tv_mute
-            x: 84
-            y: 162
-            width: 72
-            height: 44
+            x: 63
+            y: 148
+            width: 54
+            height: 42
+            styles: style_surface_btn
             scrollable: false
             widgets:
               - label:
@@ -711,10 +918,11 @@ lvgl:
               - script.execute: script_tv_mute
         - button:
             id: btn_tv_vol_up
-            x: 163
-            y: 162
-            width: 72
-            height: 44
+            x: 121
+            y: 148
+            width: 54
+            height: 42
+            styles: style_surface_btn
             scrollable: false
             widgets:
               - label:
@@ -723,17 +931,35 @@ lvgl:
                   text: "\U000F0415"
             on_click:
               - script.execute: script_tv_volume_up
+        - button:
+            id: btn_tv_source
+            x: 179
+            y: 148
+            width: 56
+            height: 42
+            styles: style_surface_btn
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: mdi_20
+                  text: "\U000F0841"
+                  text_color: 0x4FC3F7
+            on_click:
+              - script.execute: script_tv_open_sources
 
-        # ===== APP LAUNCHER (brand colour + name) =====
+        # ===== SYMMETRIC 3x2 APP LAUNCHER GRID =====
         - button:
             id: btn_app_1
             x: 5
-            y: 214
-            width: 73
-            height: 48
+            y: 198
+            width: 74
+            height: 52
             bg_color: ${app_1_bg_color}
+            pad_all: 0
+            clip_corner: true
             checked:
-              border_width: 3
+              border_width: 2
               border_color: 0xFFFFFF
             scrollable: false
             widgets:
@@ -747,12 +973,14 @@ lvgl:
         - button:
             id: btn_app_2
             x: 83
-            y: 214
-            width: 73
-            height: 48
+            y: 198
+            width: 74
+            height: 52
             bg_color: ${app_2_bg_color}
+            pad_all: 0
+            clip_corner: true
             checked:
-              border_width: 3
+              border_width: 2
               border_color: 0xFFFFFF
             scrollable: false
             widgets:
@@ -766,12 +994,14 @@ lvgl:
         - button:
             id: btn_app_3
             x: 161
-            y: 214
+            y: 198
             width: 74
-            height: 48
+            height: 52
             bg_color: ${app_3_bg_color}
+            pad_all: 0
+            clip_corner: true
             checked:
-              border_width: 3
+              border_width: 2
               border_color: 0xFFFFFF
             scrollable: false
             widgets:
@@ -785,12 +1015,14 @@ lvgl:
         - button:
             id: btn_app_4
             x: 5
-            y: 268
-            width: 113
-            height: 46
+            y: 256
+            width: 74
+            height: 52
             bg_color: ${app_4_bg_color}
+            pad_all: 0
+            clip_corner: true
             checked:
-              border_width: 3
+              border_width: 2
               border_color: 0xFFFFFF
             scrollable: false
             widgets:
@@ -803,13 +1035,15 @@ lvgl:
               - script.execute: script_launch_app_4
         - button:
             id: btn_app_5
-            x: 122
-            y: 268
-            width: 113
-            height: 46
+            x: 83
+            y: 256
+            width: 74
+            height: 52
             bg_color: ${app_5_bg_color}
+            pad_all: 0
+            clip_corner: true
             checked:
-              border_width: 3
+              border_width: 2
               border_color: 0xFFFFFF
             scrollable: false
             widgets:
@@ -820,3 +1054,104 @@ lvgl:
                   text_color: ${app_5_text_color}
             on_click:
               - script.execute: script_launch_app_5
+        - button:
+            id: btn_app_6
+            x: 161
+            y: 256
+            width: 74
+            height: 52
+            bg_color: ${app_6_bg_color}
+            pad_all: 0
+            clip_corner: true
+            checked:
+              border_width: 2
+              border_color: 0xFFFFFF
+            scrollable: false
+            widgets:
+              - label:
+                  align: center
+                  text_font: ${app_6_font}
+                  text: "${app_6_text}"
+                  text_color: ${app_6_text_color}
+            on_click:
+              - script.execute: script_launch_app_6
+
+        # ===== TV INPUT / SOURCE PICKER POPUP =====
+        - obj:
+            id: tv_source_popup
+            x: 0
+            y: 0
+            width: 240
+            height: 320
+            styles: style_popup_backdrop
+            hidden: true
+            on_click:
+              - lvgl.widget.hide: tv_source_popup
+            widgets:
+              - obj:
+                  align: center
+                  y: 10
+                  width: 220
+                  height: 268
+                  styles: style_popup_sheet
+                  scrollable: false
+                  widgets:
+                    - label:
+                        x: 16
+                        y: 14
+                        text_font: roboto_18
+                        text: "TV Input"
+                    - button:
+                        x: 174
+                        y: 8
+                        width: 36
+                        height: 36
+                        styles: style_close_btn
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: mdi_20
+                              text: "\U000F0156"
+                        on_click:
+                          - lvgl.widget.hide: tv_source_popup
+                    - roller:
+                        id: tv_source_roller
+                        x: 12
+                        y: 54
+                        width: 196
+                        height: 140
+                        text_font: roboto_14
+                        options:
+                          - "HDMI 1"
+                        selected:
+                          bg_color: 0xFF5722
+                    - button:
+                        x: 12
+                        y: 206
+                        width: 128
+                        height: 46
+                        bg_color: 0xFF5722
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_14_med
+                              text: "Switch Input"
+                        on_click:
+                          - script.execute: script_tv_select_roller_source
+                    - button:
+                        x: 146
+                        y: 206
+                        width: 62
+                        height: 46
+                        styles: style_surface_btn
+                        scrollable: false
+                        widgets:
+                          - label:
+                              align: center
+                              text_font: roboto_12
+                              text: "IR Menu"
+                        on_click:
+                          - lvgl.widget.hide: tv_source_popup
+                          - script.execute: script_tv_menu

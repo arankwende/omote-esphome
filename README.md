@@ -68,18 +68,20 @@ The **Stay Awake** switch in Home Assistant disables deep sleep, for logs or OTA
 
 ## Music Assistant variant
 
-`omote-music-assistant.yaml` (with `packages/music-assistant.yaml`) is the same remote, but all music control goes **directly to the Music Assistant server** (its `/api` endpoint) instead of through Home Assistant `media_player` entities. That covers transport, volume, mute, quick-play playlists, now-playing info and artwork, and joining speakers into a group. It includes `omote.yaml`, so every other page and the power management stay shared.
+`omote-music-assistant.yaml` (with `packages/music-assistant.yaml` and `packages/speakers-ma.yaml`) is the same remote, but music control goes **directly to the Music Assistant server** (its `/api` endpoint) instead of through Home Assistant `media_player` entities. That covers transport, volume, mute, playlist browsing, interactive queue jumping, now-playing info and artwork, and a dedicated **Speakers** page where short-tap toggles group membership and long-press opens individual speaker power/volume controls.
 
-Setup: add `ma_token` (an MA long-lived token) to `secrets.yaml`, set `ma_url`, `ma_player_id` and up to four `ma_speaker_N_id`/`_name` entries in the file's `substitutions`, then flash `omote-music-assistant.yaml`. MA player ids are not HA entity ids; look them up with `players/all` at `http://<ma-host>:8095/api-docs`.
+Setup: add `ma_token` (an MA long-lived token) to `secrets.yaml`, set `ma_url`, `ma_player_id` and up to six `roomN_ma_id`/`roomN_name` entries in the file's `substitutions`, then flash `omote-music-assistant.yaml`. MA player ids can also be HA `media_player.*` entity ids or room names (auto-resolved via `players/all`).
 
 ## TV now playing (Netflix, Disney+, Jellyfin...)
 
-While the TV plays or is paused, the TV page shows the poster full screen with the title at the bottom; tap it for the controls. On the charger, the remote stays on showing the poster.
+The TV page provides transport, Back/Home, volume/mute, a dynamic HDMI/source picker (`source_list` + IR Menu), and a 3×2 app launcher grid (`app_1`..`app_6`). While the TV plays or is paused, controls stay accessible on swipe and automatically fade to full-screen poster art after `art_controls_timeout_ms` (tap anywhere or use the Details button to return to controls). On the charger, the remote stays on showing the poster or album cover.
 
 The Android TV Remote integration only reports which app is open, not what it plays. `homeassistant/omote_tv_now_playing.yaml` is a Home Assistant package that fills the gap and builds `sensor.omote_tv_now_playing`:
 
-- **Jellyfin**: title, series and artwork from the Jellyfin integration's player for the TV.
-- **Netflix, Disney+, Prime and other apps** (and Jellyfin without the integration): every 10 s while the TV is on, the Android Debug Bridge integration reads what the app on screen publishes as playing (`dumpsys media_session`). The poster is looked up by title on TMDB and served by Home Assistant, so the remote downloads it over local http.
+- **Jellyfin**: title and series from the Jellyfin integration's player for the TV.
+- **Netflix, Disney+, Prime and other apps** (and Jellyfin without the integration): every 10 s while the TV is on, the Android Debug Bridge integration reads what the app on screen publishes as playing (`dumpsys media_session`).
+
+For both, the poster is looked up by title on TMDB (small 185 px version, which the remote decodes quickly) and served by Home Assistant, so the remote downloads it over local http.
 
 Point the remote at it in your device file:
 
@@ -126,4 +128,4 @@ OTA uploads are encrypted with the same `omote_api_key`; there is no separate OT
 
 ## Settings
 
-The Settings page (fourth page) and the matching Home Assistant entities control screen brightness, sleep timeout, lift to wake and its sensitivity. It also shows battery, the estimated runtime and WiFi signal. Settings survive deep sleep.
+Tap the battery/WiFi area in the top-right status bar from any page (or swipe to the last page) to open **Settings**. Both the on-screen page and matching Home Assistant entities control screen brightness (with live drag preview and a Night-dim badge), sleep timeout, lift to wake, wake sensitivity, and **Stay awake** (for OTA/debugging). It also shows battery percentage, estimated runtime, WiFi signal, and Home Assistant sync state. Settings survive deep sleep.

@@ -1,10 +1,9 @@
 # OMOTE - keypad.yaml
-# Physical keys: actions, on-screen feedback, hold-to-repeat.
+# Physical keys: contextual actions, modal interception, on-screen feedback, hold-to-repeat.
 # Included from omote.yaml; all ${...} values are set there.
 
 binary_sensor:
   # ==================== TCA8418 MATRIX KEYPAD BUTTONS ====================
-  #
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -30,8 +29,12 @@ binary_sensor:
     name: "Botón 2"
     on_press:
       - logger.log: "Button 2 - navigate left"
-#      - script.execute: script_reset_backlight_timeout
-      - script.execute: script_prev_page
+      - script.execute: script_close_any_popup
+      - if:
+          condition:
+            lambda: 'return !id(popup_was_open);'
+          then:
+            - script.execute: script_prev_page
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -41,8 +44,12 @@ binary_sensor:
     name: "Botón 3"
     on_press:
       - logger.log: "Button 3 - navigate right"
- #     - script.execute: script_reset_backlight_timeout
-      - script.execute: script_next_page
+      - script.execute: script_close_any_popup
+      - if:
+          condition:
+            lambda: 'return !id(popup_was_open);'
+          then:
+            - script.execute: script_next_page
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -60,7 +67,7 @@ binary_sensor:
           id: script_ha_run
           entity: "${automation_row1_btn4}"
 
-  # Media Buttons around the DPad - Page-aware behavior
+  # Media / Auxiliary Buttons around the D-Pad - Modal-aware & Page-aware
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -69,17 +76,42 @@ binary_sensor:
     col: 2
     name: "Botón Media 1"
     on_press:
-      - script.execute:
-          id: script_toast
-          text: !lambda 'return std::string(id(current_page) == 2 ? "TV: Exit" : "Not used on this page");'
-          needs: 0
+      # 1) Dismiss any open popup or full-screen art overlay first
+      - script.execute: script_close_any_popup
       - if:
           condition:
-            lambda: 'return id(current_page) == 2;'  # TV page
+            lambda: 'return !id(popup_was_open);'
           then:
-            - script.execute: script_tv_exit
-          else:
-            - logger.log: "Media Button 1 Pressed"
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == ${tv_page_index};'
+                then:
+                  - script.execute:
+                      id: script_toast
+                      text: "TV: Exit"
+                      needs: 0
+                  - script.execute: script_tv_exit
+                else:
+                  - if:
+                      condition:
+                        lambda: 'return id(current_page) == ${settings_page_index};'
+                      then:
+                        - script.execute: script_toggle_settings_page
+                      else:
+                        - if:
+                            condition:
+                              lambda: 'return id(current_page) != ${room_page_index};'
+                            then:
+                              - lvgl.page.show:
+                                  id: room_page
+                                  animation: MOVE_RIGHT
+                                  time: 200ms
+                            else:
+                              - script.execute:
+                                  id: script_toast
+                                  text: "TV: Back"
+                                  needs: 0
+                              - script.execute: script_tv_back
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -88,11 +120,54 @@ binary_sensor:
     col: 0
     name: "Botón Media 2"
     on_press:
-      - script.execute:
-          id: script_toast
-          text: "Not used on this page"
-          needs: 0
-      - logger.log: "Media Button 2 pressed"
+      # Contextual detail / input toggle on every page
+      - if:
+          condition:
+            lambda: 'return id(current_page) == ${tv_page_index};'
+          then:
+            - if:
+                condition:
+                  lambda: 'return !lv_obj_has_flag(id(tv_source_popup), LV_OBJ_FLAG_HIDDEN);'
+                then:
+                  - lvgl.widget.hide: tv_source_popup
+                else:
+                  - script.execute: script_tv_open_sources
+          else:
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == ${room_page_index};'
+                then:
+                  - if:
+                      condition:
+                        lambda: 'return !lv_obj_has_flag(id(light_popup), LV_OBJ_FLAG_HIDDEN);'
+                      then:
+                        - lvgl.widget.hide: light_popup
+                      else:
+                        - script.execute: script_light_refresh
+                        - lvgl.widget.show: light_popup
+                else:
+                  - if:
+                      condition:
+                        lambda: 'return id(current_page) == ${music_page_index};'
+                      then:
+                        - if:
+                            condition:
+                              lambda: 'return !lv_obj_has_flag(id(music_art_view), LV_OBJ_FLAG_HIDDEN);'
+                            then:
+                              - script.execute: script_music_art_details
+                            else:
+                              - if:
+                                  condition:
+                                    lambda: 'return id(music_art_loaded);'
+                                  then:
+                                    - script.execute: script_music_art_show_now
+                                  else:
+                                    - script.execute:
+                                        id: script_toast
+                                        text: "No cover loaded"
+                                        needs: 0
+                      else:
+                        - script.execute: script_toggle_settings_page
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -103,15 +178,15 @@ binary_sensor:
     on_press:
       - script.execute:
           id: script_toast
-          text: !lambda 'return std::string(id(current_page) == 2 ? "TV: Previous" : "Not used on this page");'
-          needs: !lambda 'return id(current_page) == 2 ? 2 : 0;'
+          text: !lambda 'return std::string(id(current_page) == ${tv_page_index} ? "TV: Previous" : "Previous");'
+          needs: !lambda 'return id(current_page) == ${tv_page_index} ? 2 : ${music_needs};'
       - if:
           condition:
-            lambda: 'return id(current_page) == 2;'  # TV page
+            lambda: 'return id(current_page) == ${tv_page_index};'
           then:
             - script.execute: script_tv_media_prev
           else:
-            - logger.log: "Media Button 3 pressed"
+            - script.execute: script_music_prev
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -122,17 +197,17 @@ binary_sensor:
     on_press:
       - script.execute:
           id: script_toast
-          text: !lambda 'return std::string(id(current_page) == 2 ? "TV: Next" : "Not used on this page");'
-          needs: !lambda 'return id(current_page) == 2 ? 2 : 0;'
+          text: !lambda 'return std::string(id(current_page) == ${tv_page_index} ? "TV: Next" : "Next");'
+          needs: !lambda 'return id(current_page) == ${tv_page_index} ? 2 : ${music_needs};'
       - if:
           condition:
-            lambda: 'return id(current_page) == 2;'  # TV page
+            lambda: 'return id(current_page) == ${tv_page_index};'
           then:
             - script.execute: script_tv_media_next
           else:
-            - logger.log: "Media Button 4 pressed"
+            - script.execute: script_music_next
 
-  # Dpad buttons - TV navigation
+  # D-pad buttons - Contextual & modal-aware navigation
 
   - platform: tca8418_keypad
     tca8418_keypad_id: keypad
@@ -250,11 +325,11 @@ binary_sensor:
     on_press:
       - script.execute:
           id: script_toast
-          text: !lambda 'return std::string(id(current_page) == 2 ? "TV volume +" : "Volume +");'
-          needs: !lambda 'return id(current_page) == 2 ? 0 : ${music_needs};'
+          text: !lambda 'return std::string(id(current_page) == ${tv_page_index} ? "TV volume +" : "Volume +");'
+          needs: !lambda 'return id(current_page) == ${tv_page_index} ? 0 : ${music_needs};'
       - if:
           condition:
-            lambda: 'return id(current_page) == 2;'  # TV page
+            lambda: 'return id(current_page) == ${tv_page_index};'
           then:
             - script.execute: script_tv_volume_up
           else:
@@ -270,11 +345,11 @@ binary_sensor:
           then:
             - script.execute:
                 id: script_toast
-                text: !lambda 'return std::string(id(current_page) == 2 ? "TV volume +" : "Volume +");'
-                needs: !lambda 'return id(current_page) == 2 ? 0 : ${music_needs};'
+                text: !lambda 'return std::string(id(current_page) == ${tv_page_index} ? "TV volume +" : "Volume +");'
+                needs: !lambda 'return id(current_page) == ${tv_page_index} ? 0 : ${music_needs};'
             - if:
                 condition:
-                  lambda: 'return id(current_page) == 2;'  # TV page
+                  lambda: 'return id(current_page) == ${tv_page_index};'
                 then:
                   - script.execute: script_tv_volume_up
                 else:
@@ -290,11 +365,11 @@ binary_sensor:
     on_press:
       - script.execute:
           id: script_toast
-          text: !lambda 'return std::string(id(current_page) == 2 ? "TV volume -" : "Volume -");'
-          needs: !lambda 'return id(current_page) == 2 ? 0 : ${music_needs};'
+          text: !lambda 'return std::string(id(current_page) == ${tv_page_index} ? "TV volume -" : "Volume -");'
+          needs: !lambda 'return id(current_page) == ${tv_page_index} ? 0 : ${music_needs};'
       - if:
           condition:
-            lambda: 'return id(current_page) == 2;'  # TV page
+            lambda: 'return id(current_page) == ${tv_page_index};'
           then:
             - script.execute: script_tv_volume_down
           else:
@@ -310,11 +385,11 @@ binary_sensor:
           then:
             - script.execute:
                 id: script_toast
-                text: !lambda 'return std::string(id(current_page) == 2 ? "TV volume -" : "Volume -");'
-                needs: !lambda 'return id(current_page) == 2 ? 0 : ${music_needs};'
+                text: !lambda 'return std::string(id(current_page) == ${tv_page_index} ? "TV volume -" : "Volume -");'
+                needs: !lambda 'return id(current_page) == ${tv_page_index} ? 0 : ${music_needs};'
             - if:
                 condition:
-                  lambda: 'return id(current_page) == 2;'  # TV page
+                  lambda: 'return id(current_page) == ${tv_page_index};'
                 then:
                   - script.execute: script_tv_volume_down
                 else:
@@ -330,11 +405,11 @@ binary_sensor:
     on_press:
       - script.execute:
           id: script_toast
-          text: !lambda 'return std::string(id(current_page) == 2 ? "TV mute" : "Mute");'
-          needs: !lambda 'return id(current_page) == 2 ? 0 : ${music_needs};'
+          text: !lambda 'return std::string(id(current_page) == ${tv_page_index} ? "TV mute" : "Mute");'
+          needs: !lambda 'return id(current_page) == ${tv_page_index} ? 0 : ${music_needs};'
       - if:
           condition:
-            lambda: 'return id(current_page) == 2;'  # TV page
+            lambda: 'return id(current_page) == ${tv_page_index};'
           then:
             - script.execute: script_tv_mute
           else:
@@ -351,11 +426,11 @@ binary_sensor:
     on_press:
       - script.execute:
           id: script_toast
-          text: !lambda 'return std::string(id(current_page) == 2 ? "TV: Play / Pause" : "${automation_record_name}");'
+          text: !lambda 'return std::string(id(current_page) == ${tv_page_index} ? "TV: Play / Pause" : "${automation_record_name}");'
           needs: 2
       - if:
           condition:
-            lambda: 'return id(current_page) == 2;'  # TV page
+            lambda: 'return id(current_page) == ${tv_page_index};'
           then:
             - script.execute: script_tv_media_play_pause
           else:
@@ -546,28 +621,86 @@ script:
                             data:
                               entity_id: !lambda 'return entity;'
 
-  # D-pad: controls music on the music page, the TV everywhere else
+  # D-pad: routes to open modals first, then to the active page's domain
   - id: script_dpad
     parameters:
       dir: string
     then:
+      # 1) Open Room modals (blinds / light)
       - if:
           condition:
-            lambda: 'return id(current_page) == 1;'
+            lambda: |-
+              return id(current_page) == ${room_page_index} &&
+                     (!lv_obj_has_flag(id(blinds_popup), LV_OBJ_FLAG_HIDDEN) ||
+                      !lv_obj_has_flag(id(light_popup), LV_OBJ_FLAG_HIDDEN));
           then:
             - script.execute:
-                id: script_music_dpad
+                id: script_room_dpad
                 dir: !lambda 'return dir;'
           else:
-            - script.execute:
-                id: script_toast
-                text: !lambda |-
-                  return std::string(dir == "up" ? "TV: Up" : dir == "down" ? "TV: Down" : dir == "left" ? "TV: Left"
-                                   : dir == "right" ? "TV: Right" : "TV: OK");
-                needs: 0
-            - lambda: |-
-                if (dir == "up") id(script_tv_up).execute();
-                else if (dir == "down") id(script_tv_down).execute();
-                else if (dir == "left") id(script_tv_left).execute();
-                else if (dir == "right") id(script_tv_right).execute();
-                else id(script_tv_select).execute();
+            # 2) Open TV input/source roller modal
+            - if:
+                condition:
+                  lambda: 'return id(current_page) == ${tv_page_index} && !lv_obj_has_flag(id(tv_source_popup), LV_OBJ_FLAG_HIDDEN);'
+                then:
+                  - lambda: |-
+                      auto *r = id(tv_source_roller)->obj;
+                      const uint32_t cur = lv_roller_get_selected(r), n = lv_roller_get_option_count(r);
+                      if (dir == "up" && cur > 0) lv_roller_set_selected(r, cur - 1, LV_ANIM_ON);
+                      else if (dir == "down" && cur + 1 < n) lv_roller_set_selected(r, cur + 1, LV_ANIM_ON);
+                      else if (dir == "center") id(script_tv_select_roller_source).execute();
+                else:
+                  # 3) Active page routing
+                  - if:
+                      condition:
+                        lambda: 'return id(current_page) == ${music_page_index};'
+                      then:
+                        - script.execute:
+                            id: script_music_dpad
+                            dir: !lambda 'return dir;'
+                      else:
+                        - if:
+                            condition:
+                              lambda: 'return id(current_page) == ${speakers_page_index};'
+                            then:
+                              - script.execute:
+                                  id: script_speakers_dpad
+                                  dir: !lambda 'return dir;'
+                            else:
+                              - if:
+                                  condition:
+                                    lambda: 'return id(current_page) == ${room_page_index} && ${room_dpad_controls_room};'
+                                  then:
+                                    - script.execute:
+                                        id: script_room_dpad
+                                        dir: !lambda 'return dir;'
+                                  else:
+                                    - if:
+                                        condition:
+                                          lambda: 'return id(current_page) == ${settings_page_index};'
+                                        then:
+                                          - lambda: |-
+                                              if (dir == "left" || dir == "right") {
+                                                const float next = clamp(id(cfg_brightness).state + (dir == "right" ? 10.0f : -10.0f), 10.0f, 100.0f);
+                                                auto call = id(cfg_brightness).make_call();
+                                                call.set_value(next);
+                                                call.perform();
+                                                id(script_toast).execute(str_sprintf("Brightness: %d%%", (int) next), 0);
+                                              } else if (dir == "center") {
+                                                if (id(lift_to_wake).state) id(lift_to_wake).turn_off();
+                                                else id(lift_to_wake).turn_on();
+                                              }
+                                        else:
+                                          # TV page (or Room page with room_dpad_controls_room: false)
+                                          - script.execute:
+                                              id: script_toast
+                                              text: !lambda |-
+                                                return std::string(dir == "up" ? "TV: Up" : dir == "down" ? "TV: Down"
+                                                                 : dir == "left" ? "TV: Left" : dir == "right" ? "TV: Right" : "TV: OK");
+                                              needs: 0
+                                          - lambda: |-
+                                              if (dir == "up") id(script_tv_up).execute();
+                                              else if (dir == "down") id(script_tv_down).execute();
+                                              else if (dir == "left") id(script_tv_left).execute();
+                                              else if (dir == "right") id(script_tv_right).execute();
+                                              else id(script_tv_select).execute();

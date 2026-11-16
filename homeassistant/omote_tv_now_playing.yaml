@@ -10,7 +10,7 @@
 #
 # Where the information comes from:
 #   - Jellyfin: the Jellyfin integration's media player for the TV client
-#     (title, series and artwork straight from the Jellyfin server).
+#     (title and series straight from the Jellyfin server).
 #   - Netflix, Disney+, Prime, ... (and Jellyfin without the integration):
 #     Android publishes what each app plays (its "media session"); the Android
 #     Debug Bridge integration reads it every 10 s while the TV is on. The
@@ -163,16 +163,18 @@ automation:
         data:
           value: "idle"
 
-  # New title: find its poster on TMDB
+  # New title (from ADB or Jellyfin): find its poster on TMDB. Jellyfin's own
+  # artwork is full size and would take the remote many seconds to decode.
   - id: omote_tv_poster_lookup
     alias: "Omote TV: look up poster"
     mode: restart
     triggers:
       - trigger: state
-        entity_id: input_text.omote_tv_title
+        entity_id: sensor.omote_tv_now_playing
+        attribute: media_title
     actions:
       - variables:
-          title: "{{ states('input_text.omote_tv_title') }}"
+          title: "{{ state_attr('sensor.omote_tv_now_playing', 'media_title') or '' }}"
           # "Show: S1:E2 Episode" style titles: search the show
           query: "{{ title.split(':')[0] | trim }}"
       - if:
@@ -198,8 +200,8 @@ automation:
         target:
           entity_id: input_text.omote_tv_poster
         data:
-          # w342: 342x513, a few tens of KB
-          value: "{{ 'https://image.tmdb.org/t/p/w342' ~ path if path else '' }}"
+          # w185 (185x278): decodes on the remote in a fraction of a second
+          value: "{{ 'https://image.tmdb.org/t/p/w185' ~ path if path else '' }}"
 
 template:
   # HA downloads the poster and serves it to the remote over local http
@@ -231,8 +233,6 @@ template:
         # The remote ignores HA's rotating token, so a version is appended to
         # tell a new poster from the same one with a fresh token
         picture: >-
-          {% set jf = 'media_player.living_tv_philips_oled_jellyfin' %}
-          {% if states(jf) in ['playing', 'paused'] %}{{ state_attr(jf, 'entity_picture') or '' }}
-          {% elif states('input_text.omote_tv_poster') not in ['', 'unknown', 'unavailable'] %}
+          {% if states('input_text.omote_tv_poster') not in ['', 'unknown', 'unavailable'] %}
             {{- state_attr('image.omote_tv_poster', 'entity_picture') ~ '&v=' ~ (states('image.omote_tv_poster') | urlencode) }}
           {% endif %}

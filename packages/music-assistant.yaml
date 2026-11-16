@@ -47,6 +47,9 @@ globals:
   - id: ma_grouped
     type: bool
     initial_value: "false"
+  - id: ma_group_count
+    type: int
+    initial_value: "1"
   - id: ma_muted
     type: bool
     initial_value: "false"
@@ -57,8 +60,6 @@ globals:
   - id: ma_art_url
     type: std::string
     initial_value: '""'
-  # Source image_url of the current track (detects track changes) and
-  # whether its small proxy version still has to be looked up
   - id: ma_art_src
     type: std::string
     initial_value: '""'
@@ -79,7 +80,7 @@ globals:
   - id: ma_art_changed
     type: bool
     initial_value: "false"
-  # Queue state (shuffle / repeat / position), from player_queues/get
+  # Queue state (shuffle / repeat / position / interactive selection), from player_queues/get
   - id: ma_shuffle
     type: bool
     initial_value: "false"
@@ -89,6 +90,12 @@ globals:
   - id: ma_queue_index
     type: int
     initial_value: "-1"
+  - id: ma_queue_count
+    type: int
+    initial_value: "0"
+  - id: ma_queue_sel
+    type: int
+    initial_value: "0"
   # Playlist picker: URIs in roller order
   - id: ma_playlist_uris
     type: std::vector<std::string>
@@ -107,7 +114,18 @@ globals:
     initial_value: "false"
 
 script:
-  # ---- Replace the Home Assistant versions from omote.yaml ----
+  # Hook into universal Back/Exit popup dismissal
+  - id: !extend script_close_popups_ext
+    then:
+      - lambda: |-
+          for (auto *m : {id(ma_queue_popup), id(ma_playlists_popup)}) {
+            if (!lv_obj_has_flag(m, LV_OBJ_FLAG_HIDDEN)) {
+              lv_obj_add_flag(m, LV_OBJ_FLAG_HIDDEN);
+              id(popup_was_open) = true;
+            }
+          }
+
+  # ---- Replace the Home Assistant versions from music.yaml ----
   - id: !remove script_volume_up
   - id: !remove script_volume_down
   - id: !remove script_music_play_pause
@@ -152,6 +170,9 @@ script:
 
   - id: script_music_play_pause
     then:
+      - lambda: |-
+          const bool next_p = !id(music_playing);
+          lv_label_set_text(id(lbl_play_pause), next_p ? "\U000F03E4" : "\U000F040A");
       - homeassistant.action:
           action: media_player.media_play_pause
           data:
@@ -177,13 +198,19 @@ script:
           condition:
             lambda: 'return id(ma_grouped);'
           then:
+            - lambda: |-
+                id(ma_muted) = !id(ma_muted);
+                lv_label_set_text(id(lbl_music_mute), id(ma_muted) ? "\U000F0581" : "\U000F057E");
             - script.execute:
                 id: script_ma_command
                 command: "players/cmd/group_volume_mute"
                 args: !lambda |-
                   return std::string("{\"player_id\":\"") + id(ma_resolved_player_id) + "\",\"muted\":" +
-                         (id(ma_muted) ? "false" : "true") + "}";
+                         (id(ma_muted) ? "true" : "false") + "}";
           else:
+            - lambda: |-
+                const bool next_m = !id(music_muted).state;
+                lv_label_set_text(id(lbl_music_mute), next_m ? "\U000F0581" : "\U000F057E");
             - homeassistant.action:
                 action: media_player.volume_mute
                 data:
@@ -213,6 +240,10 @@ script:
 
   - id: script_play_morning_playlist
     then:
+      - script.execute:
+          id: script_toast
+          text: "Playing ${ma_morning_name}"
+          needs: 1
       - homeassistant.action:
           action: media_player.play_media
           data:
@@ -222,12 +253,29 @@ script:
 
   - id: script_play_evening_playlist
     then:
+      - script.execute:
+          id: script_toast
+          text: "Playing ${ma_evening_name}"
+          needs: 1
       - homeassistant.action:
           action: media_player.play_media
           data:
             entity_id: media_player.${ma_player}
             media_content_id: "${ma_evening_playlist}"
             media_content_type: "music"
+
+  # Update speaker button badge on Music page when group state changes
+  - id: script_ma_update_speaker_btn
+    then:
+      - lambda: |-
+          if (id(ma_grouped) && id(ma_group_count) > 1) {
+            lv_obj_add_state(id(btn_ma_speakers), LV_STATE_CHECKED);
+            lv_label_set_text(id(lbl_ma_group_badge), str_sprintf("%d", id(ma_group_count)).c_str());
+            lv_obj_remove_flag(id(badge_ma_group), LV_OBJ_FLAG_HIDDEN);
+          } else {
+            lv_obj_remove_state(id(btn_ma_speakers), LV_STATE_CHECKED);
+            lv_obj_add_flag(id(badge_ma_group), LV_OBJ_FLAG_HIDDEN);
+          }
 
   # ---- Music Assistant API ----
   # Auto-resolve MA player_id values from players/all by matching player_id, HA entity slug, or display_name
@@ -381,7 +429,8 @@ script:
           value: "-1"
 
   # Small album art: read the current track's image proxy_id from the active
-  # queue and download /imageproxy/<id>?size=512 (a few KB instead of 100+)
+  # queue and download /imageproxy/<id>?size=256 (a few KB instead of 100+;
+  # 512 takes ~2.5 s to decode, 256 well under 1 s)
   - id: script_ma_art_resolve
     mode: single
     then:
@@ -413,7 +462,7 @@ script:
                   JsonObject item = doc["current_item"];
                   const char *pid = item["image"]["proxy_id"] | "";
                   if (!pid[0]) pid = item["media_item"]["image"]["proxy_id"] | "";
-                  if (pid[0]) url = std::string("${ma_url}/imageproxy/") + pid + "?size=512&fmt=jpeg";
+                  if (pid[0]) url = std::string("${ma_url}/imageproxy/") + pid + "?size=256&fmt=jpeg";
                 }
                 if (url != id(ma_art_url)) {
                   id(ma_art_url) = url;
@@ -454,7 +503,6 @@ script:
                   Content-Type: application/json
                 body: !lambda 'return "{\"command\":\"players/get\",\"args\":{\"player_id\":\"" + id(ma_resolved_player_id) + "\"}}";'
                 capture_response: true
-                # A full PlayerState is several kB
                 max_response_buffer_size: 32kB
                 on_response:
                   - lambda: |-
@@ -495,6 +543,7 @@ script:
                           m += ",";
                         }
                         id(ma_members) = m;
+                        id(ma_group_count) = (int) members.size();
                         id(ma_grouped) = members.size() > 1;
 
                         const bool use_group = id(ma_grouped) && !root["group_volume"].isNull();
@@ -529,8 +578,40 @@ script:
                         lv_label_set_text(id(lbl_music_title), "Music Assistant offline");
                       }
                       id(ma_backoff_until) = millis() + 30000;
+            - script.execute: script_ma_update_speaker_btn
             - script.execute: script_ma_rooms_refresh
             - script.execute: script_music_art_update
+
+  # Highlight D-pad selection inside ma_queue_popup
+  - id: script_ma_queue_highlight
+    then:
+      - lambda: |-
+          lv_obj_t *btns[] = {id(btn_q_1), id(btn_q_2), id(btn_q_3), id(btn_q_4), id(btn_q_5)};
+          for (int i = 0; i < 5; i++) {
+            if (i < id(ma_queue_count) && i == id(ma_queue_sel)) lv_obj_add_state(btns[i], LV_STATE_CHECKED);
+            else lv_obj_remove_state(btns[i], LV_STATE_CHECKED);
+          }
+
+  # Jump straight to a queued track (offset 1..5 from current_index)
+  - id: script_ma_play_queue_offset
+    parameters:
+      offset: int
+    then:
+      - if:
+          condition:
+            lambda: 'return id(ma_queue_index) >= 0 && offset >= 1 && offset <= id(ma_queue_count);'
+          then:
+            - lvgl.widget.hide: ma_queue_popup
+            - script.execute:
+                id: script_toast
+                text: "Playing queued track"
+                needs: 1
+            - script.execute:
+                id: script_ma_command
+                command: "player_queues/play_index"
+                args: !lambda |-
+                  return str_sprintf("{\"queue_id\":\"%s\",\"index\":%d}",
+                                     id(ma_resolved_player_id).c_str(), id(ma_queue_index) + offset);
 
   # Queue: shuffle / repeat / position, then the next 5 items (only while the
   # queue popup is open, the item list is a larger response)
@@ -590,27 +671,47 @@ script:
                   return str_sprintf("{\"command\":\"player_queues/items\",\"args\":{\"queue_id\":\"%s\","
                                      "\"limit\":5,\"offset\":%d}}", id(ma_resolved_player_id).c_str(), id(ma_queue_index) + 1);
                 capture_response: true
-                # queue items carry full track metadata
                 max_response_buffer_size: 96kB
                 on_response:
                   - lambda: |-
+                      lv_obj_t *btns[] = {id(btn_q_1), id(btn_q_2), id(btn_q_3), id(btn_q_4), id(btn_q_5)};
                       lv_obj_t *rows[] = {id(lbl_q_1), id(lbl_q_2), id(lbl_q_3), id(lbl_q_4), id(lbl_q_5)};
-                      for (auto *r : rows) lv_label_set_text(r, "");
-                      if (response->status_code != 200) return;
+                      for (int k = 0; k < 5; k++) {
+                        lv_label_set_text(rows[k], "");
+                        lv_obj_add_flag(btns[k], LV_OBJ_FLAG_HIDDEN);
+                      }
+                      if (response->status_code != 200) {
+                        id(ma_queue_count) = 0;
+                        return;
+                      }
                       JsonDocument doc = json::parse_json(body);
                       JsonArray items = doc.as<JsonArray>();
                       int i = 0;
                       for (JsonVariant it : items) {
                         if (i >= 5) break;
-                        lv_label_set_text(rows[i++], it["name"] | "");
+                        std::string title = it["name"] | "";
+                        const char *artist = it["media_item"]["artists"][0]["name"] | (it["artists"][0]["name"] | "");
+                        if (artist[0] != '\0') title += std::string(" · ") + artist;
+                        lv_label_set_text(rows[i], title.c_str());
+                        lv_obj_remove_flag(btns[i], LV_OBJ_FLAG_HIDDEN);
+                        i++;
                       }
+                      id(ma_queue_count) = i;
+                      if (id(ma_queue_sel) >= i) id(ma_queue_sel) = 0;
                       lv_label_set_text(id(lbl_q_empty), i == 0 ? "Nothing queued" : "");
+                  - script.execute: script_ma_queue_highlight
       - if:
           condition:
             lambda: 'return !lv_obj_has_flag(id(ma_queue_popup), LV_OBJ_FLAG_HIDDEN) && id(ma_queue_index) < 0;'
           then:
             - lambda: |-
-                for (auto *r : {id(lbl_q_1), id(lbl_q_2), id(lbl_q_3), id(lbl_q_4), id(lbl_q_5)}) lv_label_set_text(r, "");
+                lv_obj_t *btns[] = {id(btn_q_1), id(btn_q_2), id(btn_q_3), id(btn_q_4), id(btn_q_5)};
+                lv_obj_t *rows[] = {id(lbl_q_1), id(lbl_q_2), id(lbl_q_3), id(lbl_q_4), id(lbl_q_5)};
+                for (int k = 0; k < 5; k++) {
+                  lv_label_set_text(rows[k], "");
+                  lv_obj_add_flag(btns[k], LV_OBJ_FLAG_HIDDEN);
+                }
+                id(ma_queue_count) = 0;
                 lv_label_set_text(id(lbl_q_empty), "Nothing queued");
 
   - id: script_ma_toggle_shuffle
@@ -656,7 +757,6 @@ script:
             Content-Type: application/json
           body: '{"command":"music/playlists/library_items","args":{"limit":40,"order_by":"sort_name"}}'
           capture_response: true
-          # playlist objects carry metadata and images
           max_response_buffer_size: 160kB
           on_response:
             - lambda: |-
@@ -710,8 +810,8 @@ script:
                   media_content_id: !lambda 'return id(ma_playlist_uris)[lv_roller_get_selected(id(ma_playlist_roller)->obj)];'
                   media_content_type: "music"
 
-  # D-pad on the music page; while the playlist picker is open it drives the
-  # roller instead (up/down select, centre plays)
+  # D-pad on the music page: drives playlist roller or queue list when open,
+  # otherwise controls transport + volume
   - id: !remove script_music_dpad
   - id: script_music_dpad
     parameters:
@@ -728,18 +828,37 @@ script:
                 else if (dir == "down" && cur + 1 < n) lv_roller_set_selected(r, cur + 1, LV_ANIM_ON);
                 else if (dir == "center") id(script_ma_play_selected_playlist).execute();
           else:
-            - script.execute:
-                id: script_toast
-                text: !lambda |-
-                  return std::string(dir == "up" ? "Volume +" : dir == "down" ? "Volume -" : dir == "left" ? "Previous"
-                                   : dir == "right" ? "Next" : "Play / Pause");
-                needs: ${music_needs}
-            - lambda: |-
-                if (dir == "up") id(script_volume_up).execute();
-                else if (dir == "down") id(script_volume_down).execute();
-                else if (dir == "left") id(script_music_prev).execute();
-                else if (dir == "right") id(script_music_next).execute();
-                else id(script_music_play_pause).execute();
+            - if:
+                condition:
+                  lambda: 'return !lv_obj_has_flag(id(ma_queue_popup), LV_OBJ_FLAG_HIDDEN);'
+                then:
+                  - if:
+                      condition:
+                        lambda: 'return dir == "center" && id(ma_queue_count) > 0;'
+                      then:
+                        - script.execute:
+                            id: script_ma_play_queue_offset
+                            offset: !lambda 'return id(ma_queue_sel) + 1;'
+                      else:
+                        - lambda: |-
+                            if (dir == "up" && id(ma_queue_sel) > 0) id(ma_queue_sel) -= 1;
+                            else if (dir == "down" && id(ma_queue_sel) + 1 < id(ma_queue_count)) id(ma_queue_sel) += 1;
+                            else if (dir == "left") id(script_ma_toggle_shuffle).execute();
+                            else if (dir == "right") id(script_ma_cycle_repeat).execute();
+                        - script.execute: script_ma_queue_highlight
+                else:
+                  - script.execute:
+                      id: script_toast
+                      text: !lambda |-
+                        return std::string(dir == "up" ? "Volume +" : dir == "down" ? "Volume -" : dir == "left" ? "Previous"
+                                         : dir == "right" ? "Next" : "Play / Pause");
+                      needs: ${music_needs}
+                  - lambda: |-
+                      if (dir == "up") id(script_volume_up).execute();
+                      else if (dir == "down") id(script_volume_down).execute();
+                      else if (dir == "left") id(script_music_prev).execute();
+                      else if (dir == "right") id(script_music_next).execute();
+                      else id(script_music_play_pause).execute();
 
   # Join or unjoin a speaker to this player
   - id: script_ma_toggle_speaker
@@ -788,10 +907,12 @@ font:
 lvgl:
   pages:
     - id: !extend music_page
+      on_load:
+        - script.execute: script_ma_poll
       on_unload:
         - lvgl.widget.hide: [ma_queue_popup, ma_playlists_popup]
       widgets:
-        # Bottom row: Morning / Evening / Playlists picker (replaces the two-button row)
+        # Bottom row: Morning / Evening / Playlists picker (tinted dark pills + coloured icon)
         - button:
             id: !remove btn_morning_playlist
         - button:
@@ -799,52 +920,87 @@ lvgl:
         - button:
             id: btn_ma_morning
             x: 5
-            y: 272
-            width: 73
-            height: 42
-            bg_color: 0xE67E22
+            y: 271
+            width: 74
+            height: 43
+            styles: style_surface_btn
+            pad_all: 0
             scrollable: false
             widgets:
               - label:
-                  align: center
+                  x: 6
+                  y: 11
                   text_font: mdi_20
                   text: "\U000F0599"
+                  text_color: 0xFFB300
+              - label:
+                  x: 28
+                  y: 14
+                  width: 42
+                  long_mode: dot
+                  text_font: roboto_12
+                  text: "${ma_morning_name}"
             on_click:
               - script.execute: script_play_morning_playlist
         - button:
             id: btn_ma_evening
             x: 83
-            y: 272
-            width: 73
-            height: 42
-            bg_color: 0x5C4DB1
+            y: 271
+            width: 74
+            height: 43
+            styles: style_surface_btn
+            pad_all: 0
             scrollable: false
             widgets:
               - label:
-                  align: center
+                  x: 6
+                  y: 11
                   text_font: mdi_20
                   text: "\U000F0594"
+                  text_color: 0x9575CD
+              - label:
+                  x: 28
+                  y: 14
+                  width: 42
+                  long_mode: dot
+                  text_font: roboto_12
+                  text: "${ma_evening_name}"
             on_click:
               - script.execute: script_play_evening_playlist
         - button:
             id: btn_ma_playlists
             x: 161
-            y: 272
+            y: 271
             width: 74
-            height: 42
-            bg_color: 0x1DB954
+            height: 43
+            styles: style_surface_btn
+            border_color: 0x1DB954
+            pad_all: 0
             scrollable: false
             widgets:
               - label:
-                  align: center
+                  x: 6
+                  y: 11
                   text_font: mdi_20
                   text: "\U000F0CB8"
+                  text_color: 0x1DB954
+              - label:
+                  x: 30
+                  y: 14
+                  width: 40
+                  long_mode: dot
+                  text_font: roboto_12
+                  text: "Lists"
             on_click:
               - script.execute: script_ma_open_playlists
+
         # Tap the now-playing card for the queue (shuffle / repeat / up next)
         - obj:
             id: !extend card_music
             on_click:
+              - globals.set:
+                  id: ma_queue_sel
+                  value: "0"
               - lvgl.widget.show: ma_queue_popup
               - script.execute: script_ma_queue_poll
             widgets:
@@ -854,82 +1010,103 @@ lvgl:
                   text_font: mdi_20
                   text: "\U000F0CB8"
                   text_color: 0x888888
-        # Replace the static "volume high" icon with the speakers button
+
+        # Replace the static "volume high" icon with the speakers button + group badge
         - label:
             id: !remove lbl_volume_high_icon
         - button:
             id: btn_ma_speakers
-            x: 200
-            y: 228
-            width: 36
-            height: 36
-            radius: 18
+            x: 199
+            y: 226
+            width: 38
+            height: 38
+            radius: 19
+            styles: style_surface_btn
+            checked:
+              bg_color: 0x1DB954
+              border_color: 0x1DB954
             scrollable: false
             widgets:
               - label:
                   align: center
                   text_font: mdi_20
                   text: "\U000F0D38"
-                  text_color: 0x1DB954
+                  text_color: 0xFFFFFF
             on_click:
-              - lvgl.page.show: speakers_page
+              - lvgl.page.show:
+                  id: speakers_page
+                  animation: MOVE_LEFT
+                  time: 200ms
+        - obj:
+            id: badge_ma_group
+            x: 223
+            y: 222
+            width: 16
+            height: 16
+            radius: 8
+            bg_color: 0xFFFFFF
+            border_width: 0
+            pad_all: 0
+            clickable: false
+            scrollable: false
+            hidden: true
+            widgets:
+              - label:
+                  id: lbl_ma_group_badge
+                  align: center
+                  text_font: roboto_12
+                  text: "2"
+                  text_color: 0x000000
 
-        # ===== QUEUE POPUP (tap the now-playing card) =====
+        # ===== INTERACTIVE QUEUE POPUP (tap a track or press D-pad OK to jump) =====
         - obj:
             id: ma_queue_popup
             x: 0
             y: 0
             width: 240
             height: 320
-            bg_color: 0x000000
-            bg_opa: 85%
-            border_width: 0
-            radius: 0
-            pad_all: 0
+            styles: style_popup_backdrop
             hidden: true
             on_click:
               - lvgl.widget.hide: ma_queue_popup
             widgets:
               - obj:
                   align: center
-                  y: 12
-                  width: 220
-                  height: 276
-                  bg_color: 0x222222
-                  radius: 15
-                  border_width: 0
-                  pad_all: 0
+                  y: 10
+                  width: 222
+                  height: 284
+                  styles: style_popup_sheet
                   scrollable: false
                   widgets:
                     - label:
-                        x: 16
-                        y: 16
+                        x: 14
+                        y: 14
                         text_font: roboto_18
                         text: "Up next"
                     - button:
-                        x: 172
+                        x: 176
                         y: 8
-                        width: 40
-                        height: 40
-                        radius: 20
-                        bg_color: 0x444444
+                        width: 36
+                        height: 36
+                        styles: style_close_btn
                         scrollable: false
                         widgets:
                           - label:
                               align: center
-                              text_font: roboto_18
-                              text: "X"
+                              text_font: mdi_20
+                              text: "\U000F0156"
                         on_click:
                           - lvgl.widget.hide: ma_queue_popup
                     - button:
                         id: btn_ma_shuffle
                         x: 12
-                        y: 56
-                        width: 94
-                        height: 42
-                        bg_color: 0x333333
+                        y: 52
+                        width: 95
+                        height: 38
+                        styles: style_surface_btn
                         checked:
                           bg_color: 0x1DB954
+                          border_color: 0x1DB954
                         scrollable: false
                         widgets:
                           - label:
@@ -939,19 +1116,20 @@ lvgl:
                           - label:
                               align: left_mid
                               x: 26
-                              text_font: roboto_14
+                              text_font: roboto_14_med
                               text: "Shuffle"
                         on_click:
                           - script.execute: script_ma_toggle_shuffle
                     - button:
                         id: btn_ma_repeat
-                        x: 114
-                        y: 56
-                        width: 94
-                        height: 42
-                        bg_color: 0x333333
+                        x: 115
+                        y: 52
+                        width: 95
+                        height: 38
+                        styles: style_surface_btn
                         checked:
                           bg_color: 0x1DB954
+                          border_color: 0x1DB954
                         scrollable: false
                         widgets:
                           - label:
@@ -963,62 +1141,162 @@ lvgl:
                               id: lbl_ma_repeat_text
                               align: left_mid
                               x: 26
-                              text_font: roboto_14
+                              text_font: roboto_14_med
                               text: "Off"
                         on_click:
                           - script.execute: script_ma_cycle_repeat
                     - label:
                         id: lbl_q_empty
                         x: 16
-                        y: 112
+                        y: 108
                         text_font: roboto_14
                         text: "Loading..."
                         text_color: 0x888888
-                    - label:
-                        id: lbl_q_1
-                        x: 16
-                        y: 112
-                        width: 190
-                        long_mode: dot
-                        text_font: roboto_14
-                        text: ""
-                        text_color: 0xFFFFFF
-                    - label:
-                        id: lbl_q_2
-                        x: 16
-                        y: 144
-                        width: 190
-                        long_mode: dot
-                        text_font: roboto_14
-                        text: ""
-                        text_color: 0xBBBBBB
-                    - label:
-                        id: lbl_q_3
-                        x: 16
-                        y: 176
-                        width: 190
-                        long_mode: dot
-                        text_font: roboto_14
-                        text: ""
-                        text_color: 0xBBBBBB
-                    - label:
-                        id: lbl_q_4
-                        x: 16
-                        y: 208
-                        width: 190
-                        long_mode: dot
-                        text_font: roboto_14
-                        text: ""
-                        text_color: 0xBBBBBB
-                    - label:
-                        id: lbl_q_5
-                        x: 16
-                        y: 240
-                        width: 190
-                        long_mode: dot
-                        text_font: roboto_14
-                        text: ""
-                        text_color: 0xBBBBBB
+                    - button:
+                        id: btn_q_1
+                        x: 10
+                        y: 98
+                        width: 202
+                        height: 32
+                        radius: 8
+                        bg_color: 0x262626
+                        pad_all: 0
+                        checked:
+                          bg_color: 0x2F3B32
+                          border_width: 1
+                          border_color: 0x1DB954
+                        scrollable: false
+                        hidden: true
+                        widgets:
+                          - label:
+                              id: lbl_q_1
+                              x: 10
+                              y: 8
+                              width: 182
+                              long_mode: dot
+                              text_font: roboto_14_med
+                              text: ""
+                              text_color: 0xFFFFFF
+                        on_click:
+                          - script.execute:
+                              id: script_ma_play_queue_offset
+                              offset: 1
+                    - button:
+                        id: btn_q_2
+                        x: 10
+                        y: 134
+                        width: 202
+                        height: 32
+                        radius: 8
+                        bg_color: 0x262626
+                        pad_all: 0
+                        checked:
+                          bg_color: 0x2F3B32
+                          border_width: 1
+                          border_color: 0x1DB954
+                        scrollable: false
+                        hidden: true
+                        widgets:
+                          - label:
+                              id: lbl_q_2
+                              x: 10
+                              y: 8
+                              width: 182
+                              long_mode: dot
+                              text_font: roboto_14
+                              text: ""
+                              text_color: 0xDDDDDD
+                        on_click:
+                          - script.execute:
+                              id: script_ma_play_queue_offset
+                              offset: 2
+                    - button:
+                        id: btn_q_3
+                        x: 10
+                        y: 170
+                        width: 202
+                        height: 32
+                        radius: 8
+                        bg_color: 0x262626
+                        pad_all: 0
+                        checked:
+                          bg_color: 0x2F3B32
+                          border_width: 1
+                          border_color: 0x1DB954
+                        scrollable: false
+                        hidden: true
+                        widgets:
+                          - label:
+                              id: lbl_q_3
+                              x: 10
+                              y: 8
+                              width: 182
+                              long_mode: dot
+                              text_font: roboto_14
+                              text: ""
+                              text_color: 0xCCCCCC
+                        on_click:
+                          - script.execute:
+                              id: script_ma_play_queue_offset
+                              offset: 3
+                    - button:
+                        id: btn_q_4
+                        x: 10
+                        y: 206
+                        width: 202
+                        height: 32
+                        radius: 8
+                        bg_color: 0x262626
+                        pad_all: 0
+                        checked:
+                          bg_color: 0x2F3B32
+                          border_width: 1
+                          border_color: 0x1DB954
+                        scrollable: false
+                        hidden: true
+                        widgets:
+                          - label:
+                              id: lbl_q_4
+                              x: 10
+                              y: 8
+                              width: 182
+                              long_mode: dot
+                              text_font: roboto_14
+                              text: ""
+                              text_color: 0xBBBBBB
+                        on_click:
+                          - script.execute:
+                              id: script_ma_play_queue_offset
+                              offset: 4
+                    - button:
+                        id: btn_q_5
+                        x: 10
+                        y: 242
+                        width: 202
+                        height: 32
+                        radius: 8
+                        bg_color: 0x262626
+                        pad_all: 0
+                        checked:
+                          bg_color: 0x2F3B32
+                          border_width: 1
+                          border_color: 0x1DB954
+                        scrollable: false
+                        hidden: true
+                        widgets:
+                          - label:
+                              id: lbl_q_5
+                              x: 10
+                              y: 8
+                              width: 182
+                              long_mode: dot
+                              text_font: roboto_14
+                              text: ""
+                              text_color: 0xBBBBBB
+                        on_click:
+                          - script.execute:
+                              id: script_ma_play_queue_offset
+                              offset: 5
 
         # ===== PLAYLIST PICKER (D-pad: up/down choose, centre plays) =====
         - obj:
@@ -1027,52 +1305,44 @@ lvgl:
             y: 0
             width: 240
             height: 320
-            bg_color: 0x000000
-            bg_opa: 85%
-            border_width: 0
-            radius: 0
-            pad_all: 0
+            styles: style_popup_backdrop
             hidden: true
             on_click:
               - lvgl.widget.hide: ma_playlists_popup
             widgets:
               - obj:
                   align: center
-                  y: 12
+                  y: 10
                   width: 220
-                  height: 262
-                  bg_color: 0x222222
-                  radius: 15
-                  border_width: 0
-                  pad_all: 0
+                  height: 264
+                  styles: style_popup_sheet
                   scrollable: false
                   widgets:
                     - label:
                         x: 16
-                        y: 16
+                        y: 14
                         text_font: roboto_18
                         text: "Playlists"
                     - button:
-                        x: 172
+                        x: 174
                         y: 8
-                        width: 40
-                        height: 40
-                        radius: 20
-                        bg_color: 0x444444
+                        width: 36
+                        height: 36
+                        styles: style_close_btn
                         scrollable: false
                         widgets:
                           - label:
                               align: center
-                              text_font: roboto_18
-                              text: "X"
+                              text_font: mdi_20
+                              text: "\U000F0156"
                         on_click:
                           - lvgl.widget.hide: ma_playlists_popup
                     - roller:
                         id: ma_playlist_roller
                         x: 12
-                        y: 56
+                        y: 54
                         width: 196
-                        height: 136
+                        height: 140
                         text_font: roboto_14
                         options:
                           - "Loading..."
@@ -1080,7 +1350,7 @@ lvgl:
                           bg_color: 0x1DB954
                     - button:
                         x: 12
-                        y: 204
+                        y: 206
                         width: 196
                         height: 44
                         bg_color: 0x1DB954
@@ -1088,7 +1358,7 @@ lvgl:
                         widgets:
                           - label:
                               align: center
-                              text_font: roboto_14
+                              text_font: roboto_14_med
                               text: "Play"
                         on_click:
                           - script.execute: script_ma_play_selected_playlist

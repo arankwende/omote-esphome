@@ -2,10 +2,22 @@
 # Settings page and the user-adjustable settings entities.
 # Included from omote.yaml; all ${...} values are set there.
 
+esphome:
+  on_boot:
+    - priority: -150
+      then:
+        - lambda: |-
+            lv_obj_remove_flag(id(slider_cfg_brightness), LV_OBJ_FLAG_GESTURE_BUBBLE);
+            lv_obj_set_ext_click_area(id(slider_cfg_brightness), 10);
+
 script:
   # Push current setting values into the Settings page widgets (#8)
   - id: script_settings_sync
+    # Deferred to the next loop pass: never runs inside an LVGL event, and a
+    # burst of changes (e.g. restored values at boot) syncs once
+    mode: restart
     then:
+      - delay: 1ms
       - if:
           condition:
             lambda: 'return id(boot_done);'
@@ -26,23 +38,34 @@ script:
                   id(accel).write_byte(0x30, 0x2A);
                   id(accel).read_byte(0x31, &src);
                 }
-            - lvgl.slider.update:
-                id: slider_cfg_brightness
-                value: !lambda 'return id(cfg_brightness).state;'
-            - lvgl.dropdown.update:
-                id: dd_sleep
-                selected_index: !lambda |-
-                  const float t = id(cfg_sleep_timeout).state;
-                  return t <= 30 ? 0 : t <= 60 ? 1 : t <= 120 ? 2 : t <= 300 ? 3 : 4;
-            - lvgl.dropdown.update:
-                id: dd_motion
-                selected_index: !lambda |-
-                  const auto o = id(cfg_motion_sensitivity).current_option();
-                  return o == "Low" ? 0 : (o == "High" ? 2 : 1);
-            - lvgl.widget.update:
-                id: sw_lift
-                state:
-                  checked: !lambda 'return id(lift_to_wake).state;'
+            # Straight LVGL calls: the lvgl.*.update actions fire the widgets'
+            # on_value, which saved the setting and re-ran this script from
+            # inside LVGL's dropdown handling (task watchdog crash)
+            - lambda: |-
+                const int br = (int) lroundf(id(cfg_brightness).state);
+                if (!lv_obj_has_state(id(slider_cfg_brightness), LV_STATE_PRESSED))
+                  lv_slider_set_value(id(slider_cfg_brightness), br, LV_ANIM_OFF);
+                lv_label_set_text(id(lbl_cfg_brightness_txt),
+                                  id(is_nighttime) ? str_sprintf("Day %d%%", br).c_str()
+                                                   : str_sprintf("Brightness %d%%", br).c_str());
+                if (id(is_nighttime)) lv_obj_remove_flag(id(badge_night_mode), LV_OBJ_FLAG_HIDDEN);
+                else lv_obj_add_flag(id(badge_night_mode), LV_OBJ_FLAG_HIDDEN);
+
+                const float t = id(cfg_sleep_timeout).state;
+                const uint32_t sleep_idx = t <= 30 ? 0 : t <= 60 ? 1 : t <= 120 ? 2 : t <= 300 ? 3 : 4;
+                if (lv_dropdown_get_selected(id(dd_sleep)->obj) != sleep_idx)
+                  lv_dropdown_set_selected(id(dd_sleep)->obj, sleep_idx);
+
+                const auto o = id(cfg_motion_sensitivity).current_option();
+                const uint32_t motion_idx = o == "Low" ? 0 : (o == "High" ? 2 : 1);
+                if (lv_dropdown_get_selected(id(dd_motion)->obj) != motion_idx)
+                  lv_dropdown_set_selected(id(dd_motion)->obj, motion_idx);
+
+                if (id(lift_to_wake).state) lv_obj_add_state(id(sw_lift), LV_STATE_CHECKED);
+                else lv_obj_remove_state(id(sw_lift), LV_STATE_CHECKED);
+
+                if (id(stay_awake).state) lv_obj_add_state(id(sw_stay_awake), LV_STATE_CHECKED);
+                else lv_obj_remove_state(id(sw_stay_awake), LV_STATE_CHECKED);
             - script.execute: script_settings_info
 
   - id: script_settings_info
@@ -54,22 +77,26 @@ script:
             - lambda: |-
                 const float lvl = id(battery_level).state, v = id(battery_voltage).state;
                 std::string b = std::isnan(lvl) ? std::string("Battery --")
-                                                : str_sprintf("Battery %d%%  -  %.2f V", (int) lvl, v);
-                if (id(battery_charging).state) b += "  -  charging";
+                                                : str_sprintf("Battery %d%%  •  %.2f V", (int) lroundf(lvl), v);
+                if (id(battery_charging).state) b += "  •  charging";
                 lv_label_set_text(id(lbl_info_battery), b.c_str());
                 const float d = id(battery_runtime).state;
-                std::string r = id(battery_charging).state ? std::string("Estimate: charging")
-                              : std::isnan(d) ? std::string("Estimate: measuring...")
-                              : d >= 2 ? str_sprintf("Estimate: ~%d days left", (int) lroundf(d))
-                                       : str_sprintf("Estimate: ~%d hours left", (int) lroundf(d * 24));
+                std::string r = id(battery_charging).state ? std::string("Runtime: charging")
+                              : std::isnan(d) ? std::string("Runtime: measuring...")
+                              : d >= 2 ? str_sprintf("Runtime: ~%d days left", (int) lroundf(d))
+                                       : str_sprintf("Runtime: ~%d hours left", (int) lroundf(d * 24));
                 lv_label_set_text(id(lbl_info_runtime), r.c_str());
                 const float rssi = id(wifi_rssi).state;
-                std::string w = std::isnan(rssi) ? std::string("WiFi --") : str_sprintf("WiFi %d dBm", (int) rssi);
+                const bool ha_ok = api::global_api_server->is_connected();
+                const bool wf_ok = wifi::global_wifi_component->is_connected();
+                std::string w = !wf_ok ? std::string("WiFi disconnected")
+                              : std::isnan(rssi) ? std::string(ha_ok ? "WiFi OK  •  HA connected" : "WiFi OK  •  HA offline")
+                              : str_sprintf("WiFi %d dBm  •  %s", (int) rssi, ha_ok ? "HA connected" : "HA offline");
                 lv_label_set_text(id(lbl_info_wifi), w.c_str());
 
 lvgl:
   pages:
-    # ==================== PAGE 4: SETTINGS ====================
+    # ==================== PAGE 4/5: SETTINGS ====================
     - id: settings_page
       bg_color: 0x000000
       on_load:
@@ -83,47 +110,91 @@ lvgl:
         - script.execute: script_prev_page
       widgets:
         - label:
-            x: 10
-            y: 34
+            x: 8
+            y: 32
             text_font: roboto_18
             text: "Settings"
-        # Screen brightness (daytime; night uses screen_night_brightness)
+        - obj:
+            id: badge_night_mode
+            x: 158
+            y: 32
+            width: 74
+            height: 22
+            radius: 11
+            bg_color: 0x282342
+            border_width: 1
+            border_color: 0x9575CD
+            pad_all: 0
+            scrollable: false
+            clickable: false
+            hidden: true
+            widgets:
+              - label:
+                  align: center
+                  text_font: roboto_12
+                  text: "Night dim"
+                  text_color: 0xD1C4E9
+
+        # Screen brightness (live preview while dragging; persisted on release)
         - label:
-            x: 10
-            y: 72
+            id: lbl_cfg_brightness_txt
+            x: 8
+            y: 62
+            width: 108
             text_font: roboto_14
             text: "Brightness"
         - slider:
             id: slider_cfg_brightness
-            x: 112
-            y: 74
-            width: 116
-            height: 16
+            x: 118
+            y: 61
+            width: 112
+            height: 22
             min_value: 10
             max_value: 100
+            on_value:
+              - lambda: |-
+                  if (lv_obj_has_state(id(slider_cfg_brightness), LV_STATE_PRESSED)) {
+                    lv_label_set_text(id(lbl_cfg_brightness_txt), str_sprintf("Brightness %d%%", (int) x).c_str());
+                  }
+              - if:
+                  condition:
+                    lambda: 'return lv_obj_has_state(id(slider_cfg_brightness), LV_STATE_PRESSED);'
+                  then:
+                    - light.turn_on:
+                        id: back_light
+                        brightness: !lambda 'return x / 100.0f;'
+                        transition_length: 0s
             on_release:
               - number.set:
                   id: cfg_brightness
                   value: !lambda 'return x;'
+              - if:
+                  condition:
+                    lambda: 'return id(is_nighttime);'
+                  then:
+                    - light.turn_on:
+                        id: back_light
+                        brightness: ${screen_night_brightness}
+                        transition_length: 300ms
+
         # Sleep timeout
         - label:
-            x: 10
-            y: 114
+            x: 8
+            y: 98
             text_font: roboto_14
             text: "Sleep after"
         - dropdown:
             id: dd_sleep
             x: 120
-            y: 104
-            width: 110
+            y: 90
+            width: 112
             options:
               - "30 s"
               - "1 min"
               - "2 min"
               - "5 min"
               - "10 min"
-            # script_settings_sync updating the dropdown fires this too: only
-            # write real changes, or the sync re-triggers itself
+            # only write real changes (no needless saves / HA updates)
             on_value:
               - lambda: |-
                   static const float secs[] = {30, 60, 120, 300, 600};
@@ -133,18 +204,19 @@ lvgl:
                     call.set_value(v);
                     call.perform();
                   }
+
         # Lift to wake
         - label:
-            x: 10
-            y: 158
+            x: 8
+            y: 134
             text_font: roboto_14
             text: "Lift to wake"
         - switch:
             id: sw_lift
-            x: 176
-            y: 152
-            width: 52
-            height: 28
+            x: 180
+            y: 129
+            width: 50
+            height: 26
             indicator:
               checked:
                 bg_color: 0x1DB954
@@ -154,16 +226,18 @@ lvgl:
                     if (x) id(lift_to_wake).turn_on();
                     else id(lift_to_wake).turn_off();
                   }
+
+        # Motion wake sensitivity
         - label:
-            x: 10
-            y: 200
+            x: 8
+            y: 170
             text_font: roboto_14
             text: "Sensitivity"
         - dropdown:
             id: dd_motion
             x: 120
-            y: 190
-            width: 110
+            y: 162
+            width: 112
             options:
               - "Low"
               - "Medium"
@@ -176,39 +250,60 @@ lvgl:
                     call.set_index(x);
                     call.perform();
                   }
-        # Info
+
+        # Stay awake (for OTA / debugging without opening Home Assistant)
+        - label:
+            x: 8
+            y: 206
+            text_font: roboto_14
+            text: "Stay awake"
+        - switch:
+            id: sw_stay_awake
+            x: 180
+            y: 201
+            width: 50
+            height: 26
+            indicator:
+              checked:
+                bg_color: 0xF5A623
+            on_value:
+              - lambda: |-
+                  if (x != id(stay_awake).state) {
+                    if (x) id(stay_awake).turn_on();
+                    else id(stay_awake).turn_off();
+                  }
+
+        # Diagnostic info card
         - obj:
             x: 5
-            y: 240
+            y: 236
             width: 230
-            height: 74
-            bg_color: 0x1A1A1A
-            radius: 12
-            border_width: 0
-            pad_all: 0
+            height: 76
+            styles: style_card
             scrollable: false
             widgets:
               - label:
                   id: lbl_info_battery
                   x: 10
                   y: 8
-                  width: 212
+                  width: 210
                   long_mode: dot
-                  text_font: roboto_14
+                  text_font: roboto_14_med
                   text: "Battery --"
               - label:
                   id: lbl_info_runtime
                   x: 10
-                  y: 30
-                  width: 212
+                  y: 31
+                  width: 210
                   text_font: roboto_12
-                  text: "Estimate: measuring..."
+                  text: "Runtime: measuring..."
                   text_color: 0xAAAAAA
               - label:
                   id: lbl_info_wifi
                   x: 10
-                  y: 50
-                  width: 212
+                  y: 51
+                  width: 210
+                  long_mode: dot
                   text_font: roboto_12
                   text: "WiFi --"
                   text_color: 0xAAAAAA

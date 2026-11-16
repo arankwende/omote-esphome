@@ -2,6 +2,14 @@
 # Music page via Home Assistant media_player (see music-assistant.yaml for the MA version).
 # Included from omote.yaml; all ${...} values are set there.
 
+esphome:
+  on_boot:
+    - priority: -150
+      then:
+        - lambda: |-
+            lv_obj_remove_flag(id(slider_volume), LV_OBJ_FLAG_GESTURE_BUBBLE);
+            lv_obj_set_ext_click_area(id(slider_volume), 10);
+
 image:
   # Card placeholder. Being RGB565 + alpha it also makes ESPHome enable
   # LVGL's RGB565A8 support, without which LVGL can't scale the RGB565 cover
@@ -18,7 +26,7 @@ image:
     format: JPEG
     type: RGB565
     # Fills the 240x320 screen height (sides cropped); the now-playing card
-    # shows it scaled down
+    # shows it scaled down inside a rounded clip container
     resize: 320x320
     on_download_finished:
       - logger.log: "Album art downloaded OK"
@@ -28,6 +36,7 @@ image:
       - lvgl.image.update:
           id: img_album_art_full
           src: album_art
+      - lambda: 'lv_obj_remove_flag(id(img_album_art), LV_OBJ_FLAG_HIDDEN);'
       - globals.set:
           id: music_art_loaded
           value: "true"
@@ -44,12 +53,25 @@ sensor:
     entity_id: media_player.${ma_player}
     attribute: volume_level
     on_value:
-      - lvgl.slider.update:
-          id: slider_volume
-          value: !lambda 'return (int)(x * 100);'
+      - lambda: |-
+          if (!std::isnan(x) && !lv_obj_has_state(id(slider_volume), LV_STATE_PRESSED))
+            lv_slider_set_value(id(slider_volume), clamp((int) lroundf(x * 100.0f), 0, 100), LV_ANIM_OFF);
+  - platform: homeassistant
+    id: music_duration
+    entity_id: media_player.${ma_player}
+    attribute: media_duration
+    on_value:
+      - script.execute: script_music_progress_refresh
+  - platform: homeassistant
+    id: music_position
+    entity_id: media_player.${ma_player}
+    attribute: media_position
+    on_value:
+      - lambda: 'id(music_pos_sec) = std::isnan(x) ? 0.0f : x;'
+      - script.execute: script_music_progress_refresh
 
 text_sensor:
-  # Music Assistant player info
+  # Music player info
   - platform: homeassistant
     id: music_title
     entity_id: media_player.${ma_player}
@@ -57,7 +79,11 @@ text_sensor:
     on_value:
       - lvgl.label.update:
           id: lbl_music_title
-          text: !lambda 'return x;'
+          text: !lambda 'return x.empty() ? std::string("No track") : x;'
+      - globals.set:
+          id: music_pos_sec
+          value: "0"
+      - script.execute: script_music_progress_refresh
       - script.execute: script_music_art_sync
   - platform: homeassistant
     id: music_artist
@@ -138,38 +164,115 @@ globals:
   - id: music_art_loaded
     type: bool
     initial_value: "false"
-  # "Details" pressed: keep the normal layout until this time (millis)
+  # Keep the normal control layout until this time (millis) before fading to art
   - id: music_art_suppress_until
     type: uint32_t
     initial_value: "0"
   - id: music_playing
     type: bool
     initial_value: "false"
+  - id: music_pos_sec
+    type: float
+    initial_value: "0"
+
+# Advance track progress bar once per second while playing and screen is active
+interval:
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            lambda: 'return id(music_playing) && !id(device_sleeping) && id(screen_state) != 2;'
+          then:
+            - lambda: 'id(music_pos_sec) += 1.0f;'
+            - script.execute: script_music_progress_refresh
 
 script:
-  # Show the full-screen cover while playing or paused (if a cover is loaded
-  # and the user didn't ask for the details view), the normal layout otherwise
+  - id: script_music_progress_refresh
+    then:
+      - lambda: |-
+          const float dur = id(music_duration).state;
+          int pct = 0;
+          if (!std::isnan(dur) && dur > 1.0f) {
+            pct = clamp((int) lroundf((id(music_pos_sec) / dur) * 100.0f), 0, 100);
+          }
+          lv_bar_set_value(id(bar_music_progress), pct, LV_ANIM_OFF);
+          lv_bar_set_value(id(bar_art_progress), pct, LV_ANIM_OFF);
+
+  # Check whether full-screen art should be shown now or scheduled after idle
   - id: script_music_art_update
     then:
       - lambda: |-
           const std::string &st = id(music_state).state;
-          const bool show = (id(music_playing) || st == "paused") && id(music_art_loaded) &&
-                            (int32_t) (millis() - id(music_art_suppress_until)) >= 0;
+          const bool eligible = (id(music_playing) || st == "paused") && id(music_art_loaded);
+          const bool idle_ready = id(dock_active) ||
+                                  ((int32_t) (millis() - id(music_art_suppress_until)) >= 0 &&
+                                   millis() - id(last_activity_time) >= ${art_controls_timeout_ms});
+          const bool show = eligible && idle_ready;
           const bool shown = !lv_obj_has_flag(id(music_art_view), LV_OBJ_FLAG_HIDDEN);
-          if (show == shown) return;
-          if (show) {
-            // Right above the card: the page's controls (and anything other
-            // packages add, e.g. MA's playlist / speaker buttons) stack on top
-            // of the cover and become its tap-to-show overlay
+          if (show != shown) {
+            if (show) {
+              lv_obj_move_to_index(id(music_art_view), lv_obj_get_index(id(card_music)) + 1);
+              lv_obj_remove_flag(id(music_art_view), LV_OBJ_FLAG_HIDDEN);
+            } else {
+              lv_obj_add_flag(id(music_art_view), LV_OBJ_FLAG_HIDDEN);
+            }
+          }
+      - if:
+          condition:
+            lambda: 'return !lv_obj_has_flag(id(music_art_view), LV_OBJ_FLAG_HIDDEN);'
+          then:
+            - script.execute:
+                id: script_music_art_controls
+                show: false
+          else:
+            - script.execute: script_music_idle_to_art
+      - script.execute: script_music_art_sync
+
+  # Immediately enter full-screen art (used by charger dock mode)
+  - id: script_music_art_show_now
+    then:
+      - globals.set:
+          id: music_art_suppress_until
+          value: "0"
+      - lambda: |-
+          if (id(music_art_loaded)) {
             lv_obj_move_to_index(id(music_art_view), lv_obj_get_index(id(card_music)) + 1);
             lv_obj_remove_flag(id(music_art_view), LV_OBJ_FLAG_HIDDEN);
-          } else {
-            lv_obj_add_flag(id(music_art_view), LV_OBJ_FLAG_HIDDEN);
           }
       - script.execute:
           id: script_music_art_controls
           show: false
       - script.execute: script_music_art_sync
+
+  # Transition from normal controls to full-screen cover after idle timeout
+  - id: script_music_idle_to_art
+    mode: restart
+    then:
+      - delay: 500ms
+      - wait_until:
+          condition:
+            lambda: |-
+              return id(current_page) != ${music_page_index} ||
+                     (millis() - id(last_activity_time) >= ${art_controls_timeout_ms} &&
+                      (int32_t) (millis() - id(music_art_suppress_until)) >= 0);
+      - if:
+          condition:
+            lambda: |-
+              const std::string &st = id(music_state).state;
+              if (id(current_page) != ${music_page_index}) return false;
+              if (!(id(music_playing) || st == "paused") || !id(music_art_loaded)) return false;
+              // Never cover an open modal popup on music_page
+              lv_obj_t *page = lv_obj_get_parent(id(music_art_view));
+              const uint32_t n = lv_obj_get_child_count(page);
+              for (uint32_t i = 0; i < n; i++) {
+                lv_obj_t *c = lv_obj_get_child(page, i);
+                if (c != id(music_art_view) && !lv_obj_has_flag(c, LV_OBJ_FLAG_HIDDEN) &&
+                    lv_obj_get_width(c) >= 240 && lv_obj_get_height(c) >= 320)
+                  return false;
+              }
+              return true;
+          then:
+            - script.execute: script_music_art_show_now
 
   # Show / hide the controls over the cover: the scrim + details button in
   # the cover view, and the page widgets stacked above it. USER_1 marks the
@@ -185,8 +288,8 @@ script:
           if (show) lv_obj_remove_flag(id(music_art_controls), LV_OBJ_FLAG_HIDDEN);
           else lv_obj_add_flag(id(music_art_controls), LV_OBJ_FLAG_HIDDEN);
           // Title / artist: own strip at the bottom, top of the scrim with controls
-          lv_obj_set_y(id(music_art_info), show ? 92 : 264);
-          lv_obj_set_style_bg_opa(id(music_art_info), show ? LV_OPA_TRANSP : LV_OPA_60, LV_PART_MAIN);
+          lv_obj_set_y(id(music_art_info), show ? 92 : 262);
+          lv_obj_set_style_bg_opa(id(music_art_info), show ? LV_OPA_TRANSP : LV_OPA_70, LV_PART_MAIN);
           lv_obj_t *page = lv_obj_get_parent(view);
           const uint32_t n = lv_obj_get_child_count(page);
           for (uint32_t i = lv_obj_get_index(view) + 1; i < n; i++) {
@@ -240,16 +343,17 @@ script:
           id: script_music_art_controls
           show: false
 
-  # "Details" button: back to the normal layout for a minute
+  # "Details" button: return to normal card layout and pause auto-art for 30s
   - id: script_music_art_details
     then:
       - globals.set:
           id: music_art_suppress_until
-          value: !lambda 'return millis() + 60000;'
+          value: !lambda 'return millis() + 30000;'
       - lvgl.widget.hide: music_art_view
       - script.execute:
           id: script_music_art_controls
           show: false
+      - script.execute: script_music_idle_to_art
 
   # D-pad on the music page: up/down volume, left/right track, centre play/pause
   - id: script_music_dpad
@@ -299,11 +403,13 @@ script:
   # omote-music-assistant.yaml replaces these with direct Music Assistant calls.
   - id: script_music_mute
     then:
+      - lambda: |-
+          const bool next_m = !id(music_muted).state;
+          lv_label_set_text(id(lbl_music_mute), next_m ? "\U000F0581" : "\U000F057E");
       - homeassistant.action:
           action: media_player.volume_mute
           data:
             entity_id: media_player.${ma_player}
-            # toggle
             is_volume_muted: !lambda 'return id(music_muted).state ? "false" : "true";'
 
   - id: script_music_set_volume
@@ -318,6 +424,9 @@ script:
 
   - id: script_music_play_pause
     then:
+      - lambda: |-
+          const bool next_p = !id(music_playing);
+          lv_label_set_text(id(lbl_play_pause), next_p ? "\U000F03E4" : "\U000F040A");
       - homeassistant.action:
           action: media_player.media_play_pause
           data:
@@ -340,6 +449,10 @@ script:
   # Playlist quick-play scripts
   - id: script_play_morning_playlist
     then:
+      - script.execute:
+          id: script_toast
+          text: "Playing ${ma_morning_name}"
+          needs: ${music_needs}
       - homeassistant.action:
           action: media_player.play_media
           data:
@@ -349,6 +462,10 @@ script:
 
   - id: script_play_evening_playlist
     then:
+      - script.execute:
+          id: script_toast
+          text: "Playing ${ma_evening_name}"
+          needs: ${music_needs}
       - homeassistant.action:
           action: media_player.play_media
           data:
@@ -364,8 +481,20 @@ lvgl:
       on_load:
         - script.execute:
             id: script_page_loaded
-            page: 1
-        - script.execute: script_music_art_update
+            page: ${music_page_index}
+        - if:
+            condition:
+              lambda: 'return id(dock_active);'
+            then:
+              - script.execute: script_music_art_show_now
+            else:
+              - lvgl.widget.hide: music_art_view
+              - script.execute:
+                  id: script_music_art_controls
+                  show: false
+              - script.execute: script_music_idle_to_art
+      on_unload:
+        - script.stop: script_music_idle_to_art
       on_swipe_left:
         - script.execute: script_next_page
       on_swipe_right:
@@ -378,46 +507,48 @@ lvgl:
             y: 32
             width: 230
             height: 112
-            bg_color: 0x1A1A1A
-            radius: 12
-            border_width: 0
-            pad_all: 0
+            styles: style_card
             scrollable: false
             widgets:
-              # Placeholder shown until artwork has been downloaded
+              # Rounded artwork container with clip_corner so thumbnails get
+              # rounded corners and stay centered regardless of aspect ratio
               - obj:
+                  id: box_album_art
                   x: 6
                   y: 6
-                  width: 100
-                  height: 100
-                  bg_color: 0x2A2A2A
-                  radius: 6
+                  width: 98
+                  height: 98
+                  bg_color: 0x242424
+                  radius: 8
                   border_width: 0
+                  pad_all: 0
+                  clip_corner: true
                   scrollable: false
+                  clickable: false
                   widgets:
                     - image:
                         align: center
                         src: img_music_placeholder
                         image_recolor: 0x555555
                         image_recolor_opa: 100%
-              - image:
-                  id: img_album_art
-                  x: -104
-                  y: -104
-                  scale: 0.3125  # 320px cover shown at 100px
-                  src: album_art
+                    - image:
+                        id: img_album_art
+                        align: center
+                        scale: 0.30625  # 320px cover scaled cleanly into 98x98
+                        src: album_art
+                        hidden: true
               - label:
                   id: lbl_music_status
-                  x: 114
-                  y: 8
-                  width: 110
+                  x: 112
+                  y: 7
+                  width: 92
                   text_font: roboto_12
                   text: "--"
                   text_color: 0x888888
               - label:
                   id: lbl_music_title
-                  x: 114
-                  y: 26
+                  x: 112
+                  y: 24
                   width: 110
                   text_font: roboto_18
                   text: "No track"
@@ -425,8 +556,8 @@ lvgl:
                   long_mode: scroll_circular
               - label:
                   id: lbl_music_artist
-                  x: 114
-                  y: 54
+                  x: 112
+                  y: 50
                   width: 110
                   text_font: roboto_14
                   text: ""
@@ -434,13 +565,27 @@ lvgl:
                   long_mode: dot
               - label:
                   id: lbl_music_album
-                  x: 114
-                  y: 76
+                  x: 112
+                  y: 72
                   width: 110
                   text_font: roboto_12
                   text: ""
                   text_color: 0x777777
                   long_mode: dot
+              - bar:
+                  id: bar_music_progress
+                  x: 112
+                  y: 98
+                  width: 110
+                  height: 4
+                  radius: 2
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  bg_color: 0x2E2E2E
+                  indicator:
+                    bg_color: 0x1DB954
+                    radius: 2
 
         # ===== TRANSPORT CONTROLS =====
         - button:
@@ -450,6 +595,7 @@ lvgl:
             width: 58
             height: 58
             radius: 29
+            styles: style_surface_btn
             scrollable: false
             widgets:
               - label:
@@ -460,11 +606,11 @@ lvgl:
               - script.execute: script_music_prev
         - button:
             id: btn_play_pause
-            x: 83
-            y: 148
-            width: 74
-            height: 74
-            radius: 37
+            x: 84
+            y: 149
+            width: 72
+            height: 72
+            radius: 36
             bg_color: 0x1DB954
             scrollable: false
             widgets:
@@ -482,6 +628,7 @@ lvgl:
             width: 58
             height: 58
             radius: 29
+            styles: style_surface_btn
             scrollable: false
             widgets:
               - label:
@@ -494,11 +641,12 @@ lvgl:
         # ===== VOLUME: mute toggle + slider =====
         - button:
             id: btn_music_mute
-            x: 4
-            y: 228
-            width: 36
-            height: 36
-            radius: 18
+            x: 5
+            y: 226
+            width: 38
+            height: 38
+            radius: 19
+            styles: style_surface_btn
             scrollable: false
             widgets:
               - label:
@@ -510,10 +658,10 @@ lvgl:
               - script.execute: script_music_mute
         - slider:
             id: slider_volume
-            x: 50
-            y: 236
-            width: 146
-            height: 20
+            x: 52
+            y: 233
+            width: 142
+            height: 24
             min_value: 0
             max_value: 100
             value: 0
@@ -523,57 +671,59 @@ lvgl:
                   level: !lambda 'return (int) x;'
         - label:
             id: lbl_volume_high_icon
-            x: 210
-            y: 236
+            x: 208
+            y: 235
             text_font: mdi_20
             text: "\U000F057E"
             text_color: 0x1DB954
 
-        # ===== PLAYLIST QUICK-PLAY =====
+        # ===== PLAYLIST QUICK-PLAY (tinted dark surface + coloured icon) =====
         - button:
             id: btn_morning_playlist
             x: 5
-            y: 272
+            y: 271
             width: 112
-            height: 42
-            bg_color: 0xE67E22
+            height: 43
+            styles: style_surface_btn
             scrollable: false
             widgets:
               - label:
                   align: left_mid
-                  x: 4
+                  x: 2
                   text_font: mdi_20
                   text: "\U000F0599"
+                  text_color: 0xFFB300
               - label:
                   align: left_mid
-                  x: 30
-                  text_font: roboto_14
+                  x: 28
+                  text_font: roboto_14_med
                   text: "${ma_morning_name}"
             on_click:
               - script.execute: script_play_morning_playlist
         - button:
             id: btn_evening_playlist
             x: 123
-            y: 272
+            y: 271
             width: 112
-            height: 42
-            bg_color: 0x5C4DB1
+            height: 43
+            styles: style_surface_btn
             scrollable: false
             widgets:
               - label:
                   align: left_mid
-                  x: 4
+                  x: 2
                   text_font: mdi_20
                   text: "\U000F0594"
+                  text_color: 0x9575CD
               - label:
                   align: left_mid
-                  x: 30
-                  text_font: roboto_14
+                  x: 28
+                  text_font: roboto_14_med
                   text: "${ma_evening_name}"
             on_click:
               - script.execute: script_play_evening_playlist
 
-        # ===== FULL-SCREEN COVER (playing / paused; tap for controls) =====
+        # ===== FULL-SCREEN COVER (after idle or on dock; tap for controls) =====
         # Moved right above the card when shown, so the controls below sit on
         # top of it (see script_music_art_update)
         - obj:
@@ -604,7 +754,7 @@ lvgl:
                   width: 240
                   height: 28
                   bg_color: 0x000000
-                  bg_opa: 45%
+                  bg_opa: 50%
                   border_width: 0
                   radius: 0
                   clickable: false
@@ -616,23 +766,21 @@ lvgl:
                   width: 240
                   height: 228
                   bg_color: 0x000000
-                  bg_opa: 70%
+                  bg_opa: 75%
                   border_width: 0
                   radius: 0
                   pad_all: 0
                   scrollable: false
                   hidden: true
-                  # taps go through to the cover (hide the controls)
                   clickable: false
                   widgets:
                     # Back to the normal layout (card, queue...)
                     - button:
-                        x: 198
+                        x: 196
                         y: 8
                         width: 36
                         height: 36
-                        radius: 18
-                        bg_color: 0x444444
+                        styles: style_close_btn
                         scrollable: false
                         widgets:
                           - label:
@@ -644,11 +792,11 @@ lvgl:
               - obj:
                   id: music_art_info
                   x: 0
-                  y: 264
+                  y: 262
                   width: 240
-                  height: 56
+                  height: 58
                   bg_color: 0x000000
-                  bg_opa: 60%
+                  bg_opa: 70%
                   border_width: 0
                   radius: 0
                   pad_all: 0
@@ -658,7 +806,7 @@ lvgl:
                     - label:
                         id: lbl_art_title
                         x: 8
-                        y: 6
+                        y: 5
                         width: 186
                         text_font: roboto_18
                         text: ""
@@ -667,9 +815,23 @@ lvgl:
                     - label:
                         id: lbl_art_artist
                         x: 8
-                        y: 30
+                        y: 28
                         width: 186
                         text_font: roboto_14
                         text: ""
                         text_color: 0xBBBBBB
                         long_mode: dot
+                    - bar:
+                        id: bar_art_progress
+                        x: 8
+                        y: 51
+                        width: 224
+                        height: 3
+                        radius: 2
+                        min_value: 0
+                        max_value: 100
+                        value: 0
+                        bg_color: 0x444444
+                        indicator:
+                          bg_color: 0x1DB954
+                          radius: 2
